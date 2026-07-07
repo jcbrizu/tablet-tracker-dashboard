@@ -132,7 +132,9 @@
   tbody tr:hover{background:var(--panel2)}
   tbody tr:last-child td{border-bottom:none}
   .serial{font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:-.2px}
-  .stalerow td{background:color-mix(in oklab,var(--crit-bg) 30%,transparent)}
+  /* Lavado de fondo de la fila = refleja el semáforo (nunca criterio propio) */
+  .rowcrit td{background:color-mix(in oklab,var(--crit-bg) 30%,transparent)}
+  .rowwarn td{background:color-mix(in oklab,var(--warn-bg) 25%,transparent)}
 
   /* ---------- Badge ---------- */
   .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:20px;font-size:11.5px;font-weight:600;line-height:1.6}
@@ -540,9 +542,9 @@ function renderFleet(){
   }else{
     const trs=list.map(({r,s})=>{
       const m=LEVEL_META[s.level];
-      const stale = s.ageMin!=null && s.ageMin>60;
+      const rowCls = s.level==="critical"?"rowcrit":s.level==="warning"?"rowwarn":"";
       const pcls = r.points_pending==null?"":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
-      return `<tr data-serial="${esc(r.device_serial)}" class="${stale?'stalerow':''}">
+      return `<tr data-serial="${esc(r.device_serial)}" class="${rowCls}">
         <td><span class="serial">${esc(r.device_serial||"—")}</span></td>
         <td><div class="cellstack">
           <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
