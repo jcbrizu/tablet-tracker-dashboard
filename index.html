@@ -391,7 +391,7 @@ function evalStatus(r){
   const critical=[], warning=[];
 
   // ---- críticas ----
-  if(age!=null && age>60) critical.push("Sin señal "+agePhrase(age));
+  if(age!=null && age>1440) critical.push("Sin señal "+agePhrase(age));
   if(r.location_enabled===false) critical.push("Ubicación apagada");
   if(r.location_permission_ok===false) critical.push("Sin permiso de ubicación");
   if(r.managed_config_ok===false) critical.push("Sin configuración corporativa");
@@ -401,10 +401,11 @@ function evalStatus(r){
   if(r.last_sync_ok===false) critical.push("No pudo enviar al GIS");
 
   // ---- atención ----
-  if(age!=null && age>=35 && age<=60) warning.push("Sin señal "+agePhrase(age));
+  if(age!=null && age>=360 && age<1440) warning.push("Sin señal "+agePhrase(age));
   if(r.points_pending!=null && r.points_pending>20) warning.push(r.points_pending+" puntos sin enviar");
-  if(r.standby_bucket==="rare"||r.standby_bucket==="restricted") warning.push("App restringida en 2.º plano");
-  if(r.battery_optimization_exempt===false) warning.push("Sin exención de ahorro de batería");
+  // 'rare' es esperable sin exención de batería; solo 'restricted' frena envíos de verdad
+  if(r.standby_bucket==="restricted") warning.push("App restringida en 2.º plano");
+  // exención de batería: fuera del semáforo mientras Knox/KPE no esté operativo (toda la flota da false, es esperado)
   if(r.net_validated===false) warning.push("Conectada sin internet");
   // null (sin dato de carga) se trata como "no cargando": preferimos falsa alarma a alerta perdida
   if(r.battery_pct!=null && r.battery_pct<30 && r.battery_charging!==true) warning.push("Batería "+r.battery_pct+"% (sin cargar)");
