@@ -165,6 +165,12 @@
   .groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:16px}
   .group{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
   .group h3{margin:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);padding:9px 13px;border-bottom:1px solid var(--border);background:var(--panel2)}
+  .mapcard{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+  .mapcard h3{margin:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);padding:9px 13px;border-bottom:1px solid var(--border);background:var(--panel2)}
+  .mapcard .mapbody{padding:12px 13px}
+  .mapcard .mapcaption{font-size:11.5px;color:var(--dim);margin:0 0 8px}
+  .mapcard iframe{display:block;width:100%;height:260px;border:1px solid var(--border);border-radius:6px}
+  .mapcard .maplink{display:inline-block;margin-top:8px;font-size:12.5px}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 13px;border-bottom:1px solid var(--border);font-size:12.5px}
   .kv:last-child{border-bottom:none}
   .kv .k{color:var(--dim)}
@@ -609,12 +615,32 @@ function renderDetail(){
     ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false})}
     ${kv("Modo avión", boolTxt(r.airplane_mode), r.airplane_mode===true?"crit":"")}
   </div>`;
+  const zoneLat = isNil(r.last_fix_lat_approx)?null:Number(r.last_fix_lat_approx);
+  const zoneLon = isNil(r.last_fix_lon_approx)?null:Number(r.last_fix_lon_approx);
+  const hasZone = zoneLat!=null && zoneLon!=null && isFinite(zoneLat) && isFinite(zoneLon);
   const gGps=`<div class="group"><h3>GPS / Ubicación</h3>
     ${kv("Ubicación activada", boolTxt(r.location_enabled), r.location_enabled===false?"crit":"")}
     ${kv("Permiso de ubicación", boolTxt(r.location_permission_ok), r.location_permission_ok===false?"crit":"")}
     ${kv("Precisión último punto", num(r.last_fix_accuracy_m,"m"))}
     ${kv("Antigüedad último punto", {t:fmtDur(r.last_fix_age_s),n:isNil(r.last_fix_age_s)})}
+    ${kv("Zona aproximada", hasZone?{t:zoneLat.toFixed(2)+", "+zoneLon.toFixed(2),n:false}:{t:"—",n:true})}
   </div>`;
+  let gMap="";
+  if(hasZone){
+    const bboxParts=[zoneLon-0.05, zoneLat-0.03, zoneLon+0.05, zoneLat+0.03].map(n=>encodeURIComponent(n));
+    const bbox=bboxParts.join("%2C");
+    const marker=encodeURIComponent(zoneLat)+"%2C"+encodeURIComponent(zoneLon);
+    const osmSrc=`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${marker}`;
+    const gmapsUrl=`https://maps.google.com/?q=${encodeURIComponent(zoneLat)},${encodeURIComponent(zoneLon)}`;
+    gMap=`<div class="mapcard">
+      <h3>Zona aproximada</h3>
+      <div class="mapbody">
+        <p class="mapcaption">precisión ~1 km — la posición exacta solo va al GIS</p>
+        <iframe src="${esc(osmSrc)}" loading="lazy" title="Zona aproximada de la tablet"></iframe>
+        <a class="maplink" href="${esc(gmapsUrl)}" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>
+      </div>
+    </div>`;
+  }
   const gSys=`<div class="group"><h3>Sistema</h3>
     ${kv("Almacenamiento libre", fmtMB(r.storage_free_mb), (r.storage_free_mb!=null&&r.storage_free_mb<500)?"crit":"")}
     ${kv("Almacenamiento total", fmtMB(r.storage_total_mb))}
@@ -658,6 +684,7 @@ function renderDetail(){
       </div>
     </div>
     <div class="groups">${gApp}${gBatt}${gNet}${gGps}${gSys}</div>
+    ${gMap}
 
     <div class="panelbox">
       <div class="ph"><h2>Historial</h2>${rangeSeg}</div>
@@ -1060,6 +1087,8 @@ function demoFleet(){
       airplane_mode:false,
       location_enabled: locEnabled, last_fix_accuracy_m: locEnabled? Math.round(4+rnd()*40):null,
       last_fix_age_s: locEnabled? Math.round(rnd()*1800): null,
+      last_fix_lat_approx: locEnabled&&rnd()<0.85? Math.round((-38-rnd()*15)*100)/100 : null,
+      last_fix_lon_approx: locEnabled&&rnd()<0.85? Math.round((-58-rnd()*12)*100)/100 : null,
       storage_free_mb: storageFree, storage_total_mb: 64000, ram_free_mb: Math.round(400+rnd()*2600),
       ram_low: rnd()<0.06, boot_time: now - Math.round(rnd()*10)*864e5,
       android_version: rnd()<0.5?"13":"12", security_patch:"2026-05-01",
