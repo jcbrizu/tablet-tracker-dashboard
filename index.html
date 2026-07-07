@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Monitoreo de flota · Tablets de campo</title>
+<style>
+  :root{
+    --bg:#e9ecef; --panel:#ffffff; --panel2:#f4f6f7; --panel3:#eceff1;
+    --border:#d5dbe0; --border-strong:#c2cad1;
+    --text:#161b20; --dim:#5c6771; --faint:#8a949d;
+    --accent:#0f6d78; --accent-weak:#e0eef0; --accent-text:#0b545d;
+    --crit:#c53434; --crit-bg:#f8e4e4; --crit-text:#8f2020;
+    --warn:#b5760a; --warn-bg:#fbeed6; --warn-text:#875607;
+    --ok:#1f8a5b; --ok-bg:#e0f1e8; --ok-text:#166b46;
+    --nodata:#7a848c; --nodata-bg:#e7eaed;
+    --wifi:#0f6d78; --cell:#3157b8; --noint:#b5760a; --nonet:#a4adb5; --gap:#c9cfd5;
+    --shadow:0 1px 2px rgba(0,0,0,.06),0 1px 1px rgba(0,0,0,.04);
+    --mono:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,"Segoe UI",system-ui,sans-serif;
+  }
+  html[data-theme="dark"]{
+    --bg:#0d1114; --panel:#161c22; --panel2:#1b232a; --panel3:#212b33;
+    --border:#2a343d; --border-strong:#38444e;
+    --text:#e4e9ed; --dim:#95a1ab; --faint:#6c7982;
+    --accent:#38a7b3; --accent-weak:#12292d; --accent-text:#6cc4cd;
+    --crit:#e06060; --crit-bg:#331b1c; --crit-text:#f0a4a4;
+    --warn:#e0a13a; --warn-bg:#332711; --warn-text:#f0c579;
+    --ok:#3fb07c; --ok-bg:#132a20; --ok-text:#7ed3a9;
+    --nodata:#8b959d; --nodata-bg:#232c33;
+    --wifi:#38a7b3; --cell:#6f96e8; --noint:#e0a13a; --nonet:#5b6771; --gap:#2c363f;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:var(--sans); background:var(--bg); color:var(--text);
+    font-size:14px; line-height:1.4; -webkit-font-smoothing:antialiased;
+    font-variant-numeric:tabular-nums;
+  }
+  button{font-family:inherit;cursor:pointer}
+  input{font-family:inherit}
+  .mono{font-family:var(--mono)}
+  .dim{color:var(--dim)}
+  .faint{color:var(--faint)}
+  .hidden{display:none!important}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{color:var(--accent-text);text-decoration:underline}
+
+  /* ---------- App chrome ---------- */
+  .topbar{
+    display:flex;align-items:center;gap:14px;height:52px;padding:0 16px;
+    background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
+  .brand .glyph{width:22px;height:22px;border-radius:5px;background:var(--accent);position:relative;flex:0 0 auto}
+  .brand .glyph::after{content:"";position:absolute;inset:6px;border:2px solid var(--panel);border-radius:50%}
+  .brand small{font-weight:400;color:var(--dim);letter-spacing:0}
+  .demo-banner{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    padding:8px 16px;background:var(--warn-bg);color:var(--warn-text);
+    font-weight:700;font-size:13px;border-bottom:1px solid var(--border-strong);
+  }
+  .topbar .spacer{flex:1}
+  .iconbtn{
+    display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 11px;
+    background:var(--panel2);border:1px solid var(--border);border-radius:7px;color:var(--text);
+    font-size:13px;font-weight:500;
+  }
+  .iconbtn:hover{border-color:var(--border-strong);background:var(--panel3)}
+  .refresh-note{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:7px}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok)}
+  .pulse.on{animation:pulse 1.1s ease-out}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in oklab,var(--ok) 60%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+
+  .wrap{max-width:1500px;margin:0 auto;padding:16px}
+
+  /* ---------- Summary cards ---------- */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px 14px;
+    display:flex;flex-direction:column;gap:2px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  }
+  .card .num{font-size:26px;font-weight:650;line-height:1.1}
+  .card .lbl{font-size:12px;color:var(--dim)}
+  .card.clickable{cursor:pointer;user-select:none}
+  .card.clickable:hover{border-color:var(--border-strong)}
+  .card.active{outline:2px solid var(--accent);outline-offset:-1px}
+  .card .rail{position:absolute;left:0;top:0;bottom:0;width:4px}
+  .card.c-total .rail{background:var(--accent)}
+  .card.c-crit .rail{background:var(--crit)} .card.c-crit .num{color:var(--crit-text)}
+  .card.c-warn .rail{background:var(--warn)} .card.c-warn .num{color:var(--warn-text)}
+  .card.c-ok .rail{background:var(--ok)} .card.c-ok .num{color:var(--ok-text)}
+  .card.c-stale .rail{background:var(--nodata)}
+
+  /* ---------- Toolbar ---------- */
+  .toolbar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:10px}
+  .search{position:relative;flex:1;min-width:200px;max-width:340px}
+  .search input{
+    width:100%;height:34px;padding:0 12px 0 32px;border:1px solid var(--border);border-radius:7px;
+    background:var(--panel);color:var(--text);font-size:13.5px;
+  }
+  .search input:focus{outline:none;border-color:var(--accent)}
+  .search .mag{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:13px;height:13px;border:2px solid var(--faint);border-radius:50%}
+  .search .mag::after{content:"";position:absolute;width:6px;height:2px;background:var(--faint);transform:rotate(45deg);right:-4px;bottom:-1px}
+  .segmented{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--panel)}
+  .segmented button{
+    border:none;background:transparent;color:var(--dim);height:34px;padding:0 12px;font-size:13px;font-weight:500;
+    border-right:1px solid var(--border);display:flex;align-items:center;gap:6px;
+  }
+  .segmented button:last-child{border-right:none}
+  .segmented button.on{background:var(--panel3);color:var(--text)}
+  .segmented .dot{width:8px;height:8px;border-radius:50%}
+  .dot-crit{background:var(--crit)} .dot-warn{background:var(--warn)} .dot-ok{background:var(--ok)}
+
+  /* ---------- Table ---------- */
+  /* overflow:clip (no hidden): hidden crea un scroll container y el thead sticky
+     se "pega" dentro de la tarjeta, desplazado 52px, tapando filas. clip recorta
+     las esquinas igual pero deja al sticky referenciar el viewport. */
+  .tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:clip;box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{
+    text-align:left;font-weight:600;color:var(--dim);font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;
+    padding:9px 12px;border-bottom:1px solid var(--border);background:var(--panel2);position:sticky;top:52px;z-index:5;
+    white-space:nowrap;
+  }
+  thead th.sortable{cursor:pointer;user-select:none}
+  thead th.sortable:hover{color:var(--text)}
+  thead th .arrow{font-size:9px;opacity:.7;margin-left:3px}
+  tbody td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--panel2)}
+  tbody tr:last-child td{border-bottom:none}
+  .serial{font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:-.2px}
+  .stalerow td{background:color-mix(in oklab,var(--crit-bg) 30%,transparent)}
+
+  /* ---------- Badge ---------- */
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:20px;font-size:11.5px;font-weight:600;line-height:1.6}
+  .badge .ic{width:14px;height:14px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;border-radius:50%}
+  .b-crit{background:var(--crit-bg);color:var(--crit-text)} .b-crit .ic{background:var(--crit);color:#fff}
+  .b-warn{background:var(--warn-bg);color:var(--warn-text)} .b-warn .ic{background:var(--warn);color:#fff}
+  .b-ok{background:var(--ok-bg);color:var(--ok-text)} .b-ok .ic{background:var(--ok);color:#fff}
+  .b-nodata{background:var(--nodata-bg);color:var(--dim)} .b-nodata .ic{background:var(--nodata);color:#fff}
+  .reason{font-weight:600}
+  .reason.r-crit{color:var(--crit-text)} .reason.r-warn{color:var(--warn-text)} .reason.r-ok{color:var(--dim);font-weight:400}
+  .cellstack{display:flex;align-items:center;gap:8px}
+
+  /* battery */
+  .batt{display:inline-flex;align-items:center;gap:6px}
+  .batt svg{display:block}
+  .netcell{display:inline-flex;align-items:center;gap:7px}
+  .nettag{display:inline-flex;align-items:center;gap:5px;font-size:12.5px}
+  .netdot{width:8px;height:8px;border-radius:50%}
+  .pend{font-weight:600}
+  .pend.hi{color:var(--warn-text)} .pend.crit{color:var(--crit-text)}
+
+  /* ---------- Detail ---------- */
+  .detail-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .back{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--text);font-weight:500;font-size:13px}
+  .back:hover{border-color:var(--border-strong)}
+  .detail-title{display:flex;flex-direction:column;gap:5px}
+  .detail-title h1{margin:0;font-size:21px;font-family:var(--mono);letter-spacing:-.5px}
+  .detail-sub{color:var(--dim);font-size:13px}
+
+  .groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:16px}
+  .group{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
+  .group h3{margin:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);padding:9px 13px;border-bottom:1px solid var(--border);background:var(--panel2)}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 13px;border-bottom:1px solid var(--border);font-size:12.5px}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--dim)}
+  .kv .v{font-weight:600;text-align:right}
+  .kv .v.null{color:var(--faint);font-weight:400}
+  .kv.bad{background:var(--crit-bg)} .kv.bad .k,.kv.bad .v{color:var(--crit-text)}
+  .kv.warn{background:var(--warn-bg)} .kv.warn .k,.kv.warn .v{color:var(--warn-text)}
+
+  .panelbox{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);margin-bottom:14px}
+  .panelbox .ph{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .panelbox .ph h2{margin:0;font-size:14px}
+  .chart{padding:6px 8px 12px}
+  .chart .clabel{display:flex;align-items:baseline;gap:9px;padding:8px 8px 2px}
+  .chart .clabel .t{font-size:12.5px;font-weight:600}
+  .chart .clabel .s{font-size:11.5px;color:var(--dim)}
+  .chart svg{width:100%;height:auto;display:block}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;padding:4px 12px 2px;font-size:11.5px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend .sw{width:11px;height:11px;border-radius:2px}
+
+  details.raw{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
+  details.raw>summary{list-style:none;cursor:pointer;padding:11px 14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+  details.raw>summary::-webkit-details-marker{display:none}
+  details.raw>summary .chev{transition:transform .15s;color:var(--dim)}
+  details.raw[open]>summary .chev{transform:rotate(90deg)}
+  .rawscroll{overflow:auto;max-height:420px;border-top:1px solid var(--border)}
+  .rawscroll table{font-size:12px}
+  .rawscroll thead th{position:sticky;top:0}
+
+  .empty{padding:36px 20px;text-align:center;color:var(--dim)}
+  .empty .big{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px}
+
+  .loading{padding:40px;text-align:center;color:var(--dim)}
+  .spin{width:22px;height:22px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .banner{margin:12px 16px 0;padding:9px 13px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:9px}
+  .banner.err{background:var(--crit-bg);color:var(--crit-text);border:1px solid color-mix(in oklab,var(--crit) 40%,transparent)}
+  .banner.info{background:var(--accent-weak);color:var(--accent-text);border:1px solid color-mix(in oklab,var(--accent) 30%,transparent)}
+
+  /* ---------- Login ---------- */
+  .login{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .login-card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.10);padding:28px}
+  html[data-theme="dark"] .login-card{box-shadow:0 8px 40px rgba(0,0,0,.5)}
+  .login-card .brand{justify-content:center;margin-bottom:4px;font-size:16px}
+  .login-card .glyph{width:26px;height:26px}
+  .login-card h1{font-size:17px;margin:16px 0 3px;text-align:center}
+  .login-card p.sub{margin:0 0 20px;text-align:center;color:var(--dim);font-size:13px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12.5px;font-weight:600;color:var(--dim);margin-bottom:5px}
+  .field input{width:100%;height:40px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);color:var(--text);font-size:14px}
+  .field input:focus{outline:none;border-color:var(--accent);background:var(--panel)}
+  .btn-primary{width:100%;height:42px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;margin-top:6px}
+  .btn-primary:hover{filter:brightness(1.06)}
+  .btn-primary:disabled{opacity:.6;cursor:default}
+  .login-err{background:var(--crit-bg);color:var(--crit-text);border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:14px;display:flex;gap:8px;align-items:flex-start}
+  .login-foot{margin-top:18px;text-align:center;font-size:12px;color:var(--faint);line-height:1.6}
+  .link-btn{background:none;border:none;color:var(--accent);font-size:12.5px;font-weight:600;padding:0}
+  .link-btn:hover{text-decoration:underline}
+
+  @media(max-width:640px){
+    .wrap{padding:10px}
+    thead th{top:52px}
+    .col-hide-sm{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="loginView" class="login">
+  <div class="login-card">
+    <div class="brand"><span class="glyph"></span> Monitoreo de flota</div>
+    <h1>Iniciar sesión</h1>
+    <p class="sub">Ingresá con tu usuario de soporte de campo.</p>
+    <div id="loginErr" class="login-err hidden"></div>
+    <form id="loginForm">
+      <div class="field">
+        <label for="email">Correo</label>
+        <input id="email" type="email" autocomplete="username" placeholder="usuario@empresa.com" required />
+      </div>
+      <div class="field">
+        <label for="pass">Contraseña</label>
+        <input id="pass" type="password" autocomplete="current-password" placeholder="••••••••" required />
+      </div>
+      <button id="loginBtn" class="btn-primary" type="submit">Entrar</button>
+    </form>
+    <div class="login-foot">
+      Solo lectura · Los datos requieren sesión.
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="appView" class="hidden">
+  <div class="topbar">
+    <div class="brand"><span class="glyph"></span> Monitoreo de flota</div>
+    <div class="spacer"></div>
+    <div class="refresh-note" id="refreshNote"><span class="pulse" id="pulse"></span><span id="refreshTxt">—</span></div>
+    <button class="iconbtn" id="manualRefresh" title="Actualizar ahora">↻ Actualizar</button>
+    <button class="iconbtn" id="themeBtn" title="Cambiar tema">◐</button>
+    <button class="iconbtn" id="logoutBtn">Salir</button>
+  </div>
+  <div id="demoBanner" class="demo-banner hidden">⚠ DATOS DE EJEMPLO — esto NO es el estado real de la flota</div>
+  <div id="content"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+/* ============================================================
+   Configuración Supabase
+   ============================================================ */
+const SUPABASE_URL = "https://aommptbkpoqxiiymuqcx.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvbW1wdGJrcG9xeGlpeW11cWN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNTgzNzYsImV4cCI6MjA5ODkzNDM3Nn0.ZskLS_Qi8O9427qOOwLdnduqcgSdAAaLO-eIlV5KOIE";
+
+let sb = null;
+try{
+  if(window.supabase && window.supabase.createClient){
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+      auth:{ persistSession:true, autoRefreshToken:true }
+    });
+  }
+}catch(e){ console.warn("No se pudo inicializar Supabase:", e); }
+
+/* ============================================================
+   Estado
+   ============================================================ */
+const state = {
+  view:"login",        // login | fleet | detail
+  demo:false,
+  fleet:[],
+  lastRefresh:null,
+  search:"",
+  filter:"all",        // all | critical | warning | ok | stale
+  sort:{key:"status", dir:"asc"},
+  device:null,
+  range:"24h",         // 24h | 7d | 30d
+  history:null,
+  histLoading:false,
+};
+let refreshTimer=null, clockTimer=null;
+
+/* ============================================================
+   Utilidades de formato (AR / español / NULL)
+   ============================================================ */
+const TZ="America/Argentina/Buenos_Aires";
+const dtFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
+const dtFmtSec=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+const timeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,hour:"2-digit",minute:"2-digit",hour12:false});
+
+function isNil(v){ return v===null||v===undefined||v===""; }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function toDate(v){ // timestamptz string
+  if(isNil(v)) return null;
+  const d=new Date(v); return isNaN(d.getTime())?null:d;
+}
+function epochToDate(ms){
+  if(isNil(ms)) return null;
+  const n=Number(ms); if(!isFinite(n)||n<=0) return null;
+  const d=new Date(n); return isNaN(d.getTime())?null:d;
+}
+function fmtDateTime(d){ return d?dtFmt.format(d):"—"; }
+function fmtEpoch(ms){ const d=epochToDate(ms); return d?dtFmt.format(d):"—"; }
+
+function minutesSince(d){ if(!d) return null; return (Date.now()-d.getTime())/60000; }
+
+function relTime(d){
+  if(!d) return "sin dato";
+  let s=Math.floor((Date.now()-d.getTime())/1000);
+  if(s<0) s=0;
+  if(s<45) return "hace instantes";
+  const m=Math.round(s/60);
+  if(m<60) return "hace "+m+" min";
+  const h=Math.floor(m/60), mr=m%60;
+  if(h<24) return "hace "+h+" h"+(h<6&&mr>0?" "+mr+" min":"");
+  const dd=Math.floor(h/24);
+  return "hace "+dd+(dd===1?" día":" días");
+}
+function agePhrase(min){
+  if(min<60) return "hace "+Math.round(min)+" min";
+  const h=Math.floor(min/60);
+  if(h<24) return "hace "+h+" h";
+  return "hace "+Math.floor(h/24)+" días";
+}
+function fmtDur(sec){
+  if(isNil(sec)) return "—";
+  sec=Number(sec); if(!isFinite(sec)) return "—";
+  if(sec<60) return Math.round(sec)+" s";
+  const m=Math.floor(sec/60);
+  if(m<60) return m+" min";
+  const h=Math.floor(m/60), mr=m%60;
+  if(h<24) return h+" h"+(mr?" "+mr+" min":"");
+  return Math.floor(h/24)+" d";
+}
+function num(v,unit,dec){
+  if(isNil(v)) return {t:"—",n:true};
+  let n=Number(v); if(!isFinite(n)) return {t:"—",n:true};
+  if(dec!=null) n=n.toFixed(dec);
+  else n=n.toLocaleString("es-AR");
+  return {t:n+(unit?" "+unit:""),n:false};
+}
+function boolTxt(v){ if(isNil(v)) return {t:"—",n:true}; return {t:v?"Sí":"No",n:false}; }
+function fmtMB(v){
+  if(isNil(v)) return {t:"—",n:true};
+  const n=Number(v); if(!isFinite(n)) return {t:"—",n:true};
+  if(n>=1024) return {t:(n/1024).toFixed(1)+" GB",n:false};
+  return {t:Math.round(n).toLocaleString("es-AR")+" MB",n:false};
+}
+
+/* ============================================================
+   Reglas de negocio — semáforo (peor gana), contra hora actual
+   ============================================================ */
+function evalStatus(r){
+  const recv=toDate(r.received_at);
+  const age=minutesSince(recv); // minutos desde la última señal
+  const critical=[], warning=[];
+
+  // ---- críticas ----
+  if(age!=null && age>60) critical.push("Sin señal "+agePhrase(age));
+  if(r.location_enabled===false) critical.push("Ubicación apagada");
+  if(r.location_permission_ok===false) critical.push("Sin permiso de ubicación");
+  if(r.managed_config_ok===false) critical.push("Sin configuración corporativa");
+  // null (sin dato de carga) se trata como "no cargando": preferimos falsa alarma a alerta perdida
+  if(r.battery_pct!=null && r.battery_pct<15 && r.battery_charging!==true) critical.push("Batería "+r.battery_pct+"% (sin cargar)");
+  if(r.storage_free_mb!=null && r.storage_free_mb<500) critical.push("Almacenamiento casi lleno");
+  if(r.last_sync_ok===false) critical.push("No pudo enviar al GIS");
+
+  // ---- atención ----
+  if(age!=null && age>=35 && age<=60) warning.push("Sin señal "+agePhrase(age));
+  if(r.points_pending!=null && r.points_pending>20) warning.push(r.points_pending+" puntos sin enviar");
+  if(r.standby_bucket==="rare"||r.standby_bucket==="restricted") warning.push("App restringida en 2.º plano");
+  if(r.battery_optimization_exempt===false) warning.push("Sin exención de ahorro de batería");
+  if(r.net_validated===false) warning.push("Conectada sin internet");
+  // null (sin dato de carga) se trata como "no cargando": preferimos falsa alarma a alerta perdida
+  if(r.battery_pct!=null && r.battery_pct<30 && r.battery_charging!==true) warning.push("Batería "+r.battery_pct+"% (sin cargar)");
+  if(r.battery_temp_c!=null && r.battery_temp_c>45) warning.push("Batería caliente ("+Math.round(r.battery_temp_c)+"°C)");
+
+  let level="ok", reasons=[];
+  if(critical.length){ level="critical"; reasons=critical; }
+  else if(warning.length){ level="warning"; reasons=warning; }
+  else reasons=["Todo en orden"];
+
+  return {level, main:reasons[0], reasons, ageMin:age, recv};
+}
+const LEVEL_RANK={critical:0,warning:1,ok:2};
+const LEVEL_META={
+  critical:{cls:"crit",word:"Crítica",ic:"✕"},
+  warning:{cls:"warn",word:"Atención",ic:"!"},
+  ok:{cls:"ok",word:"OK",ic:"✓"},
+};
+
+/* ============================================================
+   Iconos mínimos (rects/polígono simple)
+   ============================================================ */
+function batteryIcon(pct,charging){
+  const p = isNil(pct)?null:Math.max(0,Math.min(100,Number(pct)));
+  const w=26,h=13;
+  const fillW = p==null?0:(w-4)*p/100;
+  let col = "var(--ok)";
+  if(p!=null){ if(p<15) col="var(--crit)"; else if(p<30) col="var(--warn)"; }
+  else col="var(--faint)";
+  const chg = charging===true;
+  let bolt="";
+  if(chg) bolt=`<polygon points="14,2.2 9.5,7.2 12.4,7.2 11,10.8 15.8,5.6 12.9,5.6" fill="var(--accent)" stroke="var(--panel)" stroke-width="0.6"/>`;
+  return `<svg width="${w+4}" height="${h}" viewBox="0 0 ${w+4} ${h}" aria-hidden="true">
+    <rect x="0.5" y="0.5" width="${w-1}" height="${h-1}" rx="2.5" fill="none" stroke="var(--border-strong)" stroke-width="1"/>
+    <rect x="${w}" y="4" width="3" height="5" rx="1" fill="var(--border-strong)"/>
+    ${p!=null?`<rect x="2" y="2" width="${fillW}" height="${h-4}" rx="1.2" fill="${col}"/>`:""}
+    ${bolt}
+  </svg>`;
+}
+function netDotColor(r){
+  const t=r.net_transport;
+  if(isNil(t)||t==="none") return "var(--nonet)";
+  if(r.net_validated===false) return "var(--noint)";
+  if(t==="wifi") return "var(--wifi)";
+  if(t==="cellular") return "var(--cell)";
+  if(t==="ethernet") return "var(--cell)";
+  return "var(--nonet)";
+}
+function netLabel(r){
+  const t=r.net_transport;
+  if(isNil(t)) return "sin dato";
+  if(t==="none") return "Sin red";
+  if(r.airplane_mode===true) return "Modo avión";
+  let base = t==="wifi"?"WiFi":t==="cellular"?"Celular":t==="ethernet"?"Cable":"Otro";
+  if(t==="wifi" && r.wifi_rssi_dbm!=null) base += " "+r.wifi_rssi_dbm+"dBm";
+  if(t==="cellular" && r.cell_level!=null) base += " ("+r.cell_level+"/4)";
+  if(r.net_validated===false) base += " · sin internet";
+  return base;
+}
+
+/* ============================================================
+   Render: contenedor raíz
+   ============================================================ */
+const content=()=>document.getElementById("content");
+
+function render(){
+  if(state.view==="fleet") renderFleet();
+  else if(state.view==="detail") renderDetail();
+}
+
+/* ---------------- FLOTA ---------------- */
+function renderFleet(){
+  const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
+  const counts={total:rows.length,critical:0,warning:0,ok:0,stale:0};
+  rows.forEach(x=>{ counts[x.s.level]++; if(x.s.ageMin!=null && x.s.ageMin>60) counts.stale++; });
+
+  // filtro + búsqueda
+  let list=rows.slice();
+  if(state.filter==="stale") list=list.filter(x=>x.s.ageMin!=null && x.s.ageMin>60);
+  else if(state.filter!=="all") list=list.filter(x=>x.s.level===state.filter);
+  const q=state.search.trim().toLowerCase();
+  if(q) list=list.filter(x=>String(x.r.device_serial||"").toLowerCase().includes(q));
+
+  // orden
+  const dir=state.sort.dir==="asc"?1:-1;
+  list.sort((a,b)=>{
+    const k=state.sort.key;
+    if(k==="status"){
+      if(LEVEL_RANK[a.s.level]!==LEVEL_RANK[b.s.level]) return (LEVEL_RANK[a.s.level]-LEVEL_RANK[b.s.level]);
+      const aa=a.s.ageMin==null?1e12:a.s.ageMin, bb=b.s.ageMin==null?1e12:b.s.ageMin;
+      return bb-aa; // más viejo primero
+    }
+    let av,bv;
+    if(k==="serial"){av=(a.r.device_serial||"");bv=(b.r.device_serial||"");return av.localeCompare(bv)*dir;}
+    if(k==="signal"){av=a.s.ageMin==null?1e12:a.s.ageMin;bv=b.s.ageMin==null?1e12:b.s.ageMin;return (av-bv)*dir;}
+    if(k==="battery"){av=a.r.battery_pct==null?-1:a.r.battery_pct;bv=b.r.battery_pct==null?-1:b.r.battery_pct;return (av-bv)*dir;}
+    if(k==="pending"){av=a.r.points_pending==null?-1:a.r.points_pending;bv=b.r.points_pending==null?-1:b.r.points_pending;return (av-bv)*dir;}
+    return 0;
+  });
+
+  const arrow=(k)=> state.sort.key===k?`<span class="arrow">${state.sort.dir==="asc"?"▲":"▼"}</span>`:"";
+
+  const cardsHtml=`
+    <div class="cards">
+      <div class="card c-total clickable ${state.filter==="all"?"active":""}" data-filter="all"><span class="rail"></span><span class="num">${counts.total}</span><span class="lbl">Tablets reportando</span></div>
+      <div class="card c-crit clickable ${state.filter==="critical"?"active":""}" data-filter="critical"><span class="rail"></span><span class="num">${counts.critical}</span><span class="lbl">Críticas</span></div>
+      <div class="card c-warn clickable ${state.filter==="warning"?"active":""}" data-filter="warning"><span class="rail"></span><span class="num">${counts.warning}</span><span class="lbl">En atención</span></div>
+      <div class="card c-ok clickable ${state.filter==="ok"?"active":""}" data-filter="ok"><span class="rail"></span><span class="num">${counts.ok}</span><span class="lbl">OK</span></div>
+      <div class="card c-stale clickable ${state.filter==="stale"?"active":""}" data-filter="stale"><span class="rail"></span><span class="num">${counts.stale}</span><span class="lbl">Sin reportar +1 h</span></div>
+    </div>`;
+
+  const toolbar=`
+    <div class="toolbar">
+      <div class="search">
+        <span class="mag"></span>
+        <input id="searchInput" type="search" placeholder="Buscar por serial…" value="${esc(state.search)}" />
+      </div>
+      <div class="segmented" id="filterSeg">
+        <button data-filter="all" class="${state.filter==="all"?"on":""}">Todas</button>
+        <button data-filter="critical" class="${state.filter==="critical"?"on":""}"><span class="dot dot-crit"></span>Críticas</button>
+        <button data-filter="warning" class="${state.filter==="warning"?"on":""}"><span class="dot dot-warn"></span>Atención</button>
+        <button data-filter="ok" class="${state.filter==="ok"?"on":""}"><span class="dot dot-ok"></span>OK</button>
+      </div>
+    </div>`;
+
+  let bodyHtml;
+  if(rows.length===0){
+    bodyHtml=`<div class="tablewrap"><div class="empty"><div class="big">No hay tablets reportando</div>Ninguna tablet envió un latido en los últimos 30 días.</div></div>`;
+  }else if(list.length===0){
+    bodyHtml=`<div class="tablewrap"><div class="empty"><div class="big">Sin resultados</div>No hay tablets que coincidan con el filtro o la búsqueda.</div></div>`;
+  }else{
+    const trs=list.map(({r,s})=>{
+      const m=LEVEL_META[s.level];
+      const stale = s.ageMin!=null && s.ageMin>60;
+      const pcls = r.points_pending==null?"":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
+      return `<tr data-serial="${esc(r.device_serial)}" class="${stale?'stalerow':''}">
+        <td><span class="serial">${esc(r.device_serial||"—")}</span></td>
+        <td><div class="cellstack">
+          <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
+          <span class="reason r-${m.cls}">${esc(s.main)}</span>
+        </div></td>
+        <td>${s.recv?relTime(s.recv):'<span class="faint">sin dato</span>'}</td>
+        <td><span class="batt">${batteryIcon(r.battery_pct,r.battery_charging)} ${r.battery_pct==null?'<span class="faint">—</span>':r.battery_pct+"%"}</span></td>
+        <td class="col-hide-sm"><span class="netcell"><span class="nettag"><span class="netdot" style="background:${netDotColor(r)}"></span>${esc(netLabel(r))}</span></span></td>
+        <td class="${pcls}">${r.points_pending==null?'<span class="faint">—</span>':r.points_pending}</td>
+        <td class="col-hide-sm">${r.app_version_name?'<span class="mono" style="font-size:12px">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
+      </tr>`;
+    }).join("");
+    bodyHtml=`<div class="tablewrap"><table>
+      <thead><tr>
+        <th class="sortable" data-sort="serial">Serial ${arrow("serial")}</th>
+        <th class="sortable" data-sort="status">Estado y motivo ${arrow("status")}</th>
+        <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
+        <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
+        <th class="col-hide-sm">Red</th>
+        <th class="sortable" data-sort="pending">Pend. ${arrow("pending")}</th>
+        <th class="col-hide-sm">Versión</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+    </table></div>`;
+  }
+
+  content().innerHTML=`<div class="wrap">${cardsHtml}${toolbar}${bodyHtml}</div>`;
+
+  // eventos
+  content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.filter; render(); });
+  content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.filter; render(); });
+  const si=document.getElementById("searchInput");
+  if(si){ si.oninput=()=>{ state.search=si.value; render(); const el=document.getElementById("searchInput"); if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);} }; }
+  content().querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{
+    const k=th.dataset.sort;
+    if(state.sort.key===k) state.sort.dir=state.sort.dir==="asc"?"desc":"asc";
+    else { state.sort.key=k; state.sort.dir=k==="serial"?"asc":(k==="signal"?"desc":"desc"); if(k==="status")state.sort.dir="asc"; }
+    render();
+  });
+  content().querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.serial));
+}
+
+/* ---------------- DETALLE ---------------- */
+async function openDetail(serial){
+  state.view="detail"; state.device=serial; state.history=null; state.histLoading=true;
+  render();
+  await loadHistory();
+}
+
+function renderDetail(){
+  const r = state.fleet.find(x=>x.device_serial===state.device);
+  if(!r){ content().innerHTML=`<div class="wrap"><a class="back" id="backBtn">← Volver a la flota</a><div class="empty" style="margin-top:20px">No se encontró la tablet.</div></div>`; document.getElementById("backBtn").onclick=goFleet; return; }
+  const s=evalStatus(r); const m=LEVEL_META[s.level];
+
+  const kv=(k,val,bad)=>{
+    const cls=val.n?"null":"";
+    const badcls = bad==="crit"?"bad":bad==="warn"?"warn":"";
+    return `<div class="kv ${badcls}"><span class="k">${k}</span><span class="v ${cls}">${esc(val.t)}</span></div>`;
+  };
+  // grupos
+  const gBatt=`<div class="group"><h3>Batería</h3>
+    ${kv("Nivel", num(r.battery_pct,"%"), (r.battery_pct!=null&&r.battery_pct<15&&r.battery_charging!==true)?"crit":(r.battery_pct!=null&&r.battery_pct<30&&r.battery_charging!==true)?"warn":"")}
+    ${kv("Cargando", boolTxt(r.battery_charging))}
+    ${kv("Enchufe", {t:isNil(r.battery_plugged)?"—":({ac:"AC",usb:"USB",wireless:"Inalámbrico",none:"Desconectada"}[r.battery_plugged]||r.battery_plugged),n:isNil(r.battery_plugged)})}
+    ${kv("Temperatura", num(r.battery_temp_c,"°C",1), (r.battery_temp_c!=null&&r.battery_temp_c>45)?"warn":"")}
+    ${kv("Voltaje", num(r.battery_voltage_mv,"mV"))}
+  </div>`;
+  const gNet=`<div class="group"><h3>Conectividad</h3>
+    ${kv("Transporte", {t:isNil(r.net_transport)?"—":({wifi:"WiFi",cellular:"Celular",ethernet:"Cable",none:"Sin red",other:"Otro"}[r.net_transport]||r.net_transport),n:isNil(r.net_transport)})}
+    ${kv("Internet real", boolTxt(r.net_validated), r.net_validated===false?"warn":"")}
+    ${kv("Señal WiFi", num(r.wifi_rssi_dbm,"dBm"))}
+    ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false})}
+    ${kv("Modo avión", boolTxt(r.airplane_mode), r.airplane_mode===true?"crit":"")}
+  </div>`;
+  const gGps=`<div class="group"><h3>GPS / Ubicación</h3>
+    ${kv("Ubicación activada", boolTxt(r.location_enabled), r.location_enabled===false?"crit":"")}
+    ${kv("Permiso de ubicación", boolTxt(r.location_permission_ok), r.location_permission_ok===false?"crit":"")}
+    ${kv("Precisión último punto", num(r.last_fix_accuracy_m,"m"))}
+    ${kv("Antigüedad último punto", {t:fmtDur(r.last_fix_age_s),n:isNil(r.last_fix_age_s)})}
+  </div>`;
+  const gSys=`<div class="group"><h3>Sistema</h3>
+    ${kv("Almacenamiento libre", fmtMB(r.storage_free_mb), (r.storage_free_mb!=null&&r.storage_free_mb<500)?"crit":"")}
+    ${kv("Almacenamiento total", fmtMB(r.storage_total_mb))}
+    ${kv("RAM libre", fmtMB(r.ram_free_mb))}
+    ${kv("RAM baja", boolTxt(r.ram_low), r.ram_low===true?"warn":"")}
+    ${kv("Último reinicio", {t:fmtEpoch(r.boot_time),n:isNil(r.boot_time)})}
+    ${kv("Android", {t:isNil(r.android_version)?"—":String(r.android_version),n:isNil(r.android_version)})}
+    ${kv("Parche de seguridad", {t:isNil(r.security_patch)?"—":String(r.security_patch),n:isNil(r.security_patch)})}
+  </div>`;
+  const gApp=`<div class="group"><h3>App y envío al GIS</h3>
+    ${kv("Versión app", {t:isNil(r.app_version_name)?"—":r.app_version_name+(r.app_version_code?" ("+r.app_version_code+")":""),n:isNil(r.app_version_name)})}
+    ${kv("Puntos pendientes", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"")}
+    ${kv("Punto más viejo sin enviar", {t:fmtDur(r.oldest_pending_age_s),n:isNil(r.oldest_pending_age_s)})}
+    ${kv("Enviados (48 h)", num(r.points_sent_48h))}
+    ${kv("Último envío OK", boolTxt(r.last_sync_ok), r.last_sync_ok===false?"crit":"")}
+    ${kv("Error de envío", {t:isNil(r.last_sync_error)?"—":({partial_failure:"Falla parcial",auth_failure:"Falla de autenticación"}[r.last_sync_error]||r.last_sync_error),n:isNil(r.last_sync_error)}, r.last_sync_error?"warn":"")}
+    ${kv("Último envío", {t:fmtEpoch(r.last_sync_at),n:isNil(r.last_sync_at)})}
+    ${kv("Estado en 2.º plano", {t:isNil(r.standby_bucket)?"—":({active:"Activa",working_set:"En uso",frequent:"Frecuente",rare:"Rara",restricted:"Restringida"}[r.standby_bucket]||r.standby_bucket),n:isNil(r.standby_bucket)}, (r.standby_bucket==="rare"||r.standby_bucket==="restricted")?"warn":"")}
+    ${kv("Exenta de ahorro batería", boolTxt(r.battery_optimization_exempt), r.battery_optimization_exempt===false?"warn":"")}
+    ${kv("Modo ahorro de energía", boolTxt(r.power_save_mode), r.power_save_mode===true?"warn":"")}
+    ${kv("Config. corporativa OK", boolTxt(r.managed_config_ok), r.managed_config_ok===false?"crit":"")}
+    ${kv("Último latido (servidor)", {t:fmtDateTime(toDate(r.received_at)),n:isNil(r.received_at)})}
+    ${kv("Reloj de la tablet", {t:fmtEpoch(r.reported_at),n:isNil(r.reported_at)})}
+  </div>`;
+
+  const rangeSeg=`<div class="segmented" id="rangeSeg">
+    <button data-r="24h" class="${state.range==="24h"?"on":""}">24 h</button>
+    <button data-r="7d" class="${state.range==="7d"?"on":""}">7 días</button>
+    <button data-r="30d" class="${state.range==="30d"?"on":""}">30 días</button>
+  </div>`;
+
+  content().innerHTML=`<div class="wrap">
+    <div class="detail-head">
+      <a class="back" id="backBtn">← Volver</a>
+      <div class="detail-title">
+        <h1>${esc(r.device_serial||"—")}</h1>
+        <div class="detail-sub">
+          <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
+          &nbsp;${esc(s.reasons.join(" · "))} · última señal ${s.recv?relTime(s.recv):"sin dato"}
+        </div>
+      </div>
+    </div>
+    <div class="groups">${gApp}${gBatt}${gNet}${gGps}${gSys}</div>
+
+    <div class="panelbox">
+      <div class="ph"><h2>Historial</h2>${rangeSeg}</div>
+      <div id="histArea"></div>
+    </div>
+    <div id="rawArea"></div>
+  </div>`;
+
+  document.getElementById("backBtn").onclick=goFleet;
+  content().querySelectorAll("#rangeSeg button").forEach(b=>b.onclick=async()=>{ state.range=b.dataset.r; state.history=null; state.histLoading=true; renderDetail(); await loadHistory(); });
+
+  renderHistory();
+}
+
+function rangeMs(){ return state.range==="24h"?864e5 : state.range==="7d"?7*864e5 : 30*864e5; }
+const GAP_MIN=35; // umbral de hueco
+
+function renderHistory(){
+  const area=document.getElementById("histArea");
+  const rawArea=document.getElementById("rawArea");
+  if(!area) return;
+  if(state.histLoading){ area.innerHTML=`<div class="loading"><div class="spin"></div>Cargando historial…</div>`; if(rawArea)rawArea.innerHTML=""; return; }
+  const h=state.history||[];
+  if(h.length===0){
+    area.innerHTML=`<div class="empty"><div class="big">Todavía no hay latidos de esta tablet</div>No hay historial en el rango seleccionado.</div>`;
+    if(rawArea)rawArea.innerHTML=""; return;
+  }
+  const now=Date.now(), x1=now, x0=now-rangeMs();
+  const pts=h.map(d=>({t:toDate(d.received_at)?.getTime(), r:d})).filter(p=>p.t&&p.t>=x0-6e4).sort((a,b)=>a.t-b.t);
+
+  area.innerHTML=
+    chartBlock("Batería","%, con tramos de carga marcados",
+      lineChart(pts,{x0,x1,yMin:0,yMax:100,get:r=>r.battery_pct,color:"var(--ok)",fill:true,chargeGet:r=>r.battery_charging}))
+    + connectivityBlock(pts,x0,x1)
+    + chartBlock("Puntos pendientes de envío","cantidad acumulada sin llegar al GIS",
+      lineChart(pts,{x0,x1,yMin:0,yMax:null,get:r=>r.points_pending,color:"var(--warn)",fill:true}));
+
+  // tabla cruda últimos ~20
+  const last=h.slice().sort((a,b)=>(toDate(b.received_at)?.getTime()||0)-(toDate(a.received_at)?.getTime()||0)).slice(0,20);
+  const rtrs=last.map(d=>{
+    const nb=isNil(d.battery_pct)?'<span class="faint">—</span>':d.battery_pct+"%"+(d.battery_charging?" ⚡":"");
+    return `<tr>
+      <td class="mono">${fmtDateTime(toDate(d.received_at))}</td>
+      <td>${nb}</td>
+      <td>${esc(netLabel(d))}</td>
+      <td>${isNil(d.points_pending)?'<span class="faint">—</span>':d.points_pending}</td>
+      <td>${isNil(d.last_sync_ok)?'<span class="faint">—</span>':(d.last_sync_ok?'<span style="color:var(--ok-text)">OK</span>':'<span style="color:var(--crit-text)">falló</span>')}</td>
+      <td>${isNil(d.wifi_rssi_dbm)?'<span class="faint">—</span>':d.wifi_rssi_dbm+" dBm"}</td>
+    </tr>`;
+  }).join("");
+  rawArea.innerHTML=`<details class="raw"><summary><span class="chev">▶</span> Últimos ${last.length} latidos (crudos)</summary>
+    <div class="rawscroll"><table>
+      <thead><tr><th>Hora (servidor)</th><th>Batería</th><th>Red</th><th>Pend.</th><th>Envío</th><th>WiFi</th></tr></thead>
+      <tbody>${rtrs}</tbody>
+    </table></div></details>`;
+}
+
+function chartBlock(title,sub,svg){
+  return `<div class="chart"><div class="clabel"><span class="t">${esc(title)}</span><span class="s">${esc(sub)}</span></div>${svg}</div>`;
+}
+
+/* --- gráfico de líneas SVG, corta en huecos, marca huecos y carga --- */
+function lineChart(pts,opt){
+  const W=1000,H=170,padL=42,padR=14,padT=14,padB=22;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const {x0,x1}=opt;
+  const valPts=pts.filter(p=>opt.get(p.r)!=null).map(p=>({t:p.t,v:Number(opt.get(p.r)),r:p.r}));
+  let yMax=opt.yMax, yMin=opt.yMin;
+  if(yMax==null){ yMax=Math.max(10,...valPts.map(p=>p.v)); yMax=niceTop(yMax); }
+  const X=t=>padL+((t-x0)/(x1-x0))*plotW;
+  const Y=v=>padT+(1-((v-yMin)/(yMax-yMin||1)))*plotH;
+
+  // huecos (gray bands) sobre TODO el rango, según cadencia
+  const gaps=findGaps(pts.map(p=>p.t),x0,x1);
+  const gapRects=gaps.map(g=>`<rect x="${X(g[0]).toFixed(1)}" y="${padT}" width="${(X(g[1])-X(g[0])).toFixed(1)}" height="${plotH}" fill="var(--gap)" opacity="0.5"/>`).join("");
+
+  // grilla horizontal fina
+  let grid="",labels="";
+  const steps=4;
+  for(let i=0;i<=steps;i++){
+    const v=yMin+(yMax-yMin)*i/steps; const y=Y(v);
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.7"/>`;
+    labels+=`<text x="${padL-6}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--dim)">${Math.round(v)}</text>`;
+  }
+  // ticks tiempo
+  const tticks=timeTicks(x0,x1);
+  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t))}</text>`).join("");
+
+  // path cortando en huecos
+  let dLine="",dFill="";
+  let prevT=null,started=false,fillStartX=null;
+  const segs=[]; let cur=[];
+  for(const p of valPts){
+    if(prevT!=null && (p.t-prevT)/60000>GAP_MIN){ if(cur.length)segs.push(cur); cur=[]; }
+    cur.push(p); prevT=p.t;
+  }
+  if(cur.length)segs.push(cur);
+  segs.forEach(seg=>{
+    dLine+="M"+seg.map(p=>`${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join("L");
+    if(opt.fill && seg.length){
+      dFill+=`M${X(seg[0].t).toFixed(1)},${(padT+plotH).toFixed(1)}L`+seg.map(p=>`${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join("L")+`L${X(seg[seg.length-1].t).toFixed(1)},${(padT+plotH).toFixed(1)}Z`;
+    }
+  });
+
+  // marcas de carga (batería): puntos donde charging=true
+  let chargeDots="";
+  if(opt.chargeGet){
+    chargeDots=valPts.filter(p=>opt.chargeGet(p.r)===true).map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join("");
+  }
+  const dots = valPts.length<=60 ? valPts.map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="1.6" fill="${opt.color}"/>`).join("") : "";
+
+  const chargeLegend = opt.chargeGet?`<div class="legend"><span><span class="sw" style="background:var(--accent);border-radius:50%"></span>Cargando</span><span><span class="sw" style="background:var(--gap)"></span>Sin señal</span></div>`:`<div class="legend"><span><span class="sw" style="background:var(--gap)"></span>Sin señal</span></div>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">
+    ${gapRects}${grid}
+    ${opt.fill?`<path d="${dFill}" fill="${opt.color}" opacity="0.12"/>`:""}
+    <path d="${dLine}" fill="none" stroke="${opt.color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${chargeDots}${labels}${tlabels}
+  </svg>${chargeLegend}`;
+}
+
+/* --- banda de conectividad --- */
+function connectivityBlock(pts,x0,x1){
+  const W=1000,H=54,padL=42,padR=14,padT=10;
+  const plotW=W-padL-padR, bandH=22;
+  const X=t=>padL+((t-x0)/(x1-x0))*plotW;
+  let rects="";
+  if(pts.length===0){
+    // sin puntos en el rango: banda gris "sin señal" en todo el ancho,
+    // igual que hacen los gráficos de línea via findGaps() en este caso.
+    rects=`<rect x="${X(x0).toFixed(1)}" y="${padT}" width="${(X(x1)-X(x0)).toFixed(1)}" height="${bandH}" fill="var(--gap)" opacity="0.55"/>`;
+  }
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i]; const next=pts[i+1];
+    const tEnd = next?Math.min(next.t,x1):Math.min(p.t+15*60000,x1);
+    if(next && (next.t-p.t)/60000>GAP_MIN){
+      // segmento del dato + hueco hasta next
+      const solidEnd=Math.min(p.t+15*60000,next.t);
+      rects+=seg(X(p.t),X(solidEnd),segColor(p.r));
+      rects+=`<rect x="${X(solidEnd).toFixed(1)}" y="${padT}" width="${(X(next.t)-X(solidEnd)).toFixed(1)}" height="${bandH}" fill="var(--gap)" opacity="0.55"/>`;
+    }else{
+      rects+=seg(X(p.t),X(tEnd),segColor(p.r));
+    }
+  }
+  // hueco inicial y final
+  if(pts.length){
+    if((pts[0].t-x0)/60000>GAP_MIN) rects=`<rect x="${X(x0).toFixed(1)}" y="${padT}" width="${(X(pts[0].t)-X(x0)).toFixed(1)}" height="${bandH}" fill="var(--gap)" opacity="0.55"/>`+rects;
+    const lastEnd=Math.min(pts[pts.length-1].t+15*60000,x1);
+    if((x1-lastEnd)/60000>GAP_MIN) rects+=`<rect x="${X(lastEnd).toFixed(1)}" y="${padT}" width="${(X(x1)-X(lastEnd)).toFixed(1)}" height="${bandH}" fill="var(--gap)" opacity="0.55"/>`;
+  }
+  const tticks=timeTicks(x0,x1);
+  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t))}</text>`).join("");
+  function seg(xa,xb,col){ if(xb<=xa) return ""; return `<rect x="${xa.toFixed(1)}" y="${padT}" width="${(xb-xa).toFixed(1)}" height="${bandH}" fill="${col}"/>`; }
+  function segColor(r){
+    if(isNil(r.net_transport)||r.net_transport==="none"||r.airplane_mode===true) return "var(--nonet)";
+    if(r.net_validated===false) return "var(--noint)";
+    if(r.net_transport==="wifi") return "var(--wifi)";
+    if(r.net_transport==="cellular"||r.net_transport==="ethernet") return "var(--cell)";
+    return "var(--nonet)";
+  }
+  const legend=`<div class="legend">
+    <span><span class="sw" style="background:var(--wifi)"></span>WiFi</span>
+    <span><span class="sw" style="background:var(--cell)"></span>Celular</span>
+    <span><span class="sw" style="background:var(--noint)"></span>Sin internet real</span>
+    <span><span class="sw" style="background:var(--nonet)"></span>Sin red</span>
+    <span><span class="sw" style="background:var(--gap)"></span>Sin señal</span>
+  </div>`;
+  const svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${rects}${tlabels}</svg>`;
+  return `<div class="chart"><div class="clabel"><span class="t">Conectividad</span><span class="s">tipo de red a lo largo del tiempo</span></div>${svg}${legend}</div>`;
+}
+
+function findGaps(times,x0,x1){
+  const gaps=[]; const ts=times.filter(t=>t).sort((a,b)=>a-b);
+  if(ts.length===0){ return [[x0,x1]]; }
+  if((ts[0]-x0)/60000>GAP_MIN) gaps.push([x0,ts[0]]);
+  for(let i=1;i<ts.length;i++){ if((ts[i]-ts[i-1])/60000>GAP_MIN) gaps.push([ts[i-1]+15*60000,ts[i]]); }
+  const last=ts[ts.length-1]+15*60000;
+  if((x1-last)/60000>GAP_MIN) gaps.push([Math.min(last,x1),x1]);
+  return gaps;
+}
+function niceTop(v){ if(v<=10)return 10; const mag=Math.pow(10,Math.floor(Math.log10(v))); const n=v/mag; const step=n<=1?1:n<=2?2:n<=5?5:10; return step*mag; }
+function timeTicks(x0,x1){
+  const span=x1-x0, ticks=[]; const n=5;
+  for(let i=0;i<=n;i++) ticks.push(x0+span*i/n);
+  return ticks;
+}
+function tickLabel(t){
+  const span=rangeMs();
+  const d=new Date(t);
+  if(span<=864e5) return timeFmt.format(d); // hh:mm
+  // día/mes
+  return new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit"}).format(d);
+}
+
+/* ============================================================
+   Datos
+   ============================================================ */
+async function loadFleet(silent){
+  if(state.demo){ state.fleet=demoFleet(); state.lastRefresh=Date.now(); pulse(); if(state.view==="login")state.view="fleet"; render(); return; }
+  if(!sb){ showBanner("No se pudo conectar con el servidor (Supabase). Verificá la conexión.","err"); return; }
+  try{
+    const {data,error}=await sb.from("fleet_status").select("*");
+    if(error) throw error;
+    state.fleet=data||[];
+    state.lastRefresh=Date.now(); pulse();
+    if(state.view!=="detail") state.view="fleet";
+    render();
+    if(state.view==="detail") { const r=state.fleet.find(x=>x.device_serial===state.device); if(r) renderDetail(); }
+  }catch(e){
+    console.warn(e);
+    if(!silent) showBanner("No se pudieron cargar los datos de la flota. "+(e.message||""),"err");
+  }
+}
+
+async function loadHistory(){
+  if(state.demo){ state.history=demoHistory(state.device,rangeMs()); state.histLoading=false; renderHistory(); return; }
+  if(!sb){ state.history=[]; state.histLoading=false; renderHistory(); return; }
+  try{
+    const cutoff=new Date(Date.now()-rangeMs()).toISOString();
+    const cols="received_at,reported_at,app_version_name,battery_pct,battery_charging,battery_plugged,battery_temp_c,net_transport,net_validated,wifi_rssi_dbm,cell_level,airplane_mode,points_pending,oldest_pending_age_s,points_sent_48h,last_sync_ok,last_sync_error,storage_free_mb,ram_free_mb,ram_low,standby_bucket,location_enabled";
+    // ascending:false — si la tablet supera el límite de 3000 filas en el
+    // rango, PostgREST debe descartar las MÁS VIEJAS y quedarse con las
+    // últimas. Los consumidores de este array (gráficos y tabla cruda)
+    // ya hacen su propio sort local, así que el orden de entrega no les afecta.
+    const {data,error}=await sb.from("heartbeats").select(cols)
+      .eq("device_serial",state.device).gte("received_at",cutoff)
+      .order("received_at",{ascending:false}).limit(3000);
+    if(error) throw error;
+    state.history=data||[];
+  }catch(e){
+    console.warn(e); state.history=[];
+    showBanner("No se pudo cargar el historial. "+(e.message||""),"err");
+  }
+  state.histLoading=false; renderHistory();
+}
+
+/* ============================================================
+   UI helpers
+   ============================================================ */
+function pulse(){ const p=document.getElementById("pulse"); if(p){ p.classList.remove("on"); void p.offsetWidth; p.classList.add("on"); } }
+function updateRefreshLabel(){
+  const el=document.getElementById("refreshTxt"); if(!el) return;
+  if(!state.lastRefresh){ el.textContent="—"; return; }
+  el.textContent="Actualizado "+relTime(new Date(state.lastRefresh));
+}
+function showBanner(msg,type){
+  const c=document.getElementById("content"); if(!c) return;
+  const b=document.createElement("div"); b.className="banner "+(type||"info"); b.textContent=msg;
+  c.prepend(b); setTimeout(()=>b.remove(),6000);
+}
+function goFleet(){ state.view="fleet"; state.device=null; render(); }
+
+function startTimers(){
+  stopTimers();
+  refreshTimer=setInterval(()=>loadFleet(true),60000);
+  clockTimer=setInterval(updateRefreshLabel,1000);
+}
+function stopTimers(){ if(refreshTimer)clearInterval(refreshTimer); if(clockTimer)clearInterval(clockTimer); refreshTimer=clockTimer=null; }
+
+/* ---------------- Tema ---------------- */
+function initTheme(){
+  const stored=localStorage.getItem("flota_theme");
+  if(stored==="light"||stored==="dark"){ document.documentElement.setAttribute("data-theme",stored); return; }
+  const hour=new Date().getHours();
+  const prefersDark = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) || hour>=19 || hour<7;
+  document.documentElement.setAttribute("data-theme",prefersDark?"dark":"light");
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+  document.documentElement.setAttribute("data-theme",cur);
+  localStorage.setItem("flota_theme",cur);
+}
+
+/* ============================================================
+   Autenticación
+   ============================================================ */
+const loginView=()=>document.getElementById("loginView");
+const appView=()=>document.getElementById("appView");
+
+function enterApp(demo){
+  state.demo=!!demo;
+  document.getElementById("demoBanner").classList.toggle("hidden",!demo);
+  loginView().classList.add("hidden");
+  appView().classList.remove("hidden");
+  state.view="fleet";
+  updateRefreshLabel();
+  loadFleet();
+  startTimers();
+}
+function exitToLogin(){
+  stopTimers();
+  appView().classList.add("hidden");
+  loginView().classList.remove("hidden");
+  state.demo=false; state.fleet=[]; state.device=null; state.view="login";
+  document.getElementById("pass").value="";
+}
+
+function loginErr(msg){
+  const e=document.getElementById("loginErr");
+  e.innerHTML='<span>⚠</span><span>'+esc(msg)+'</span>';
+  e.classList.remove("hidden");
+}
+
+document.getElementById("loginForm").addEventListener("submit",async(ev)=>{
+  ev.preventDefault();
+  const email=document.getElementById("email").value.trim();
+  const pass=document.getElementById("pass").value;
+  const btn=document.getElementById("loginBtn");
+  document.getElementById("loginErr").classList.add("hidden");
+  if(!sb){ loginErr("No hay conexión con el servidor. Probá de nuevo o usá los datos de ejemplo."); return; }
+  btn.disabled=true; btn.textContent="Ingresando…";
+  try{
+    const {error}=await sb.auth.signInWithPassword({email,password:pass});
+    if(error){
+      const m=(error.message||"").toLowerCase();
+      if(m.includes("invalid")) loginErr("Correo o contraseña incorrectos. Revisá los datos e intentá de nuevo.");
+      else if(m.includes("email not confirmed")) loginErr("Tu cuenta todavía no está confirmada. Contactá al administrador.");
+      else loginErr("No se pudo iniciar sesión. "+error.message);
+    }else{
+      enterApp(false);
+    }
+  }catch(e){
+    loginErr("No se pudo conectar con el servidor. Revisá tu conexión a internet.");
+  }finally{
+    btn.disabled=false; btn.textContent="Entrar";
+  }
+});
+
+document.getElementById("logoutBtn").onclick=async()=>{
+  if(sb && !state.demo){ try{ await sb.auth.signOut(); }catch(e){} }
+  exitToLogin();
+};
+document.getElementById("manualRefresh").onclick=()=>{ loadFleet(); };
+document.getElementById("themeBtn").onclick=toggleTheme;
+
+/* ============================================================
+   Arranque: revisar sesión existente
+   ============================================================ */
+initTheme();
+(async function boot(){
+  if(sb){
+    // Registrar el listener ANTES del early return: si la sesión se invalida
+    // más tarde (token revocado, logout en otra pestaña, etc.) igual nos
+    // enteramos y volvemos al login en vez de dejar datos viejos en pantalla.
+    sb.auth.onAuthStateChange((event,session)=>{
+      if(event==="SIGNED_OUT"){ if(!state.demo) exitToLogin(); }
+    });
+    try{
+      const {data}=await sb.auth.getSession();
+      if(data && data.session){ enterApp(false); return; }
+    }catch(e){}
+  }
+  if(new URLSearchParams(location.search).get("demo")==="1") enterApp(true);
+})();
+
+/* ============================================================
+   DATOS DE EJEMPLO (solo para previsualizar sin conexión)
+   ============================================================ */
+function rng(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function hashStr(str){ let h=2166136261; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+let _demoCache=null;
+function demoFleet(){
+  const now=Date.now();
+  const versions=["3.4.1","3.4.1","3.4.0","3.3.8","3.4.1"];
+  const list=[]; const N=46;
+  for(let i=1;i<=N;i++){
+    const serial="SM-T870-"+String(i).padStart(4,"0");
+    const rnd=rng(hashStr(serial)+7);
+    // perfil de problema
+    const roll=rnd();
+    let ageMin;
+    if(roll<0.10) ageMin=60+rnd()*300;       // sin señal (crítica)
+    else if(roll<0.20) ageMin=35+rnd()*24;   // atención por señal
+    else ageMin=rnd()*14;                     // reciente
+    const recv=new Date(now-ageMin*60000).toISOString();
+    const charging=rnd()<0.35;
+    let batt=Math.round(10+rnd()*90);
+    if(roll>=0.86&&roll<0.90) batt=Math.round(4+rnd()*10); // batería crítica
+    const transport=rnd()<0.7?"wifi":(rnd()<0.85?"cellular":"none");
+    const validated= transport==="none"?false:(rnd()<0.82);
+    const pending= roll<0.30? Math.round(rnd()*80) : Math.round(rnd()*8);
+    const syncOk= roll<0.08? false : (rnd()<0.95);
+    const storageFree= rnd()<0.07? Math.round(rnd()*450) : Math.round(1500+rnd()*40000);
+    const locEnabled= rnd()<0.05? false : true;
+    const managed= rnd()<0.04? false : true;
+    const bucket= rnd()<0.12? (rnd()<0.5?"rare":"restricted") : (rnd()<0.5?"active":"working_set");
+    const optExempt= rnd()<0.15? false : true;
+    const nl = rnd()<0.06; // algunos NULL
+    list.push({
+      device_serial:serial,
+      app_version_name:versions[i%versions.length], app_version_code:340+ (i%5),
+      received_at:recv, reported_at: now-ageMin*60000 - Math.round(rnd()*20000),
+      battery_pct: nl?null:batt, battery_charging: nl?null:charging,
+      battery_plugged: charging?(rnd()<0.7?"ac":"usb"):"none",
+      battery_temp_c: nl?null: (rnd()<0.1? 46+rnd()*6 : 24+rnd()*18),
+      battery_voltage_mv: nl?null: Math.round(3700+rnd()*500),
+      net_transport: transport, net_validated: transport==="none"?false:validated,
+      wifi_rssi_dbm: transport==="wifi"? Math.round(-40-rnd()*50): null,
+      cell_level: transport==="cellular"? Math.round(rnd()*4): (rnd()<0.5?Math.round(rnd()*4):null),
+      airplane_mode:false,
+      location_enabled: locEnabled, last_fix_accuracy_m: locEnabled? Math.round(4+rnd()*40):null,
+      last_fix_age_s: locEnabled? Math.round(rnd()*1800): null,
+      storage_free_mb: storageFree, storage_total_mb: 64000, ram_free_mb: Math.round(400+rnd()*2600),
+      ram_low: rnd()<0.06, boot_time: now - Math.round(rnd()*10)*864e5,
+      android_version: rnd()<0.5?"13":"12", security_patch:"2026-05-01",
+      points_pending: nl?null:pending, oldest_pending_age_s: pending>0? Math.round(pending*900*(0.5+rnd())):0,
+      points_sent_48h: Math.round(rnd()*300), last_sync_ok: syncOk,
+      last_sync_error: syncOk?null:(rnd()<0.5?"partial_failure":"auth_failure"),
+      last_sync_at: syncOk? now-Math.round(rnd()*30)*60000 : now-Math.round(60+rnd()*300)*60000,
+      standby_bucket:bucket, battery_optimization_exempt:optExempt,
+      power_save_mode: rnd()<0.1, managed_config_ok:managed, location_permission_ok: rnd()<0.04?false:true,
+    });
+  }
+  return list;
+}
+function demoHistory(serial,span){
+  const now=Date.now(), rnd=rng(hashStr(serial)+3);
+  const out=[]; const step=15*60000; const n=Math.floor(span/step);
+  let batt=40+Math.round(rnd()*50); let pend=Math.round(rnd()*5); let charging=false;
+  const problem = rnd()<0.4; // sube pendientes
+  for(let i=n;i>=0;i--){
+    const t=now-i*step;
+    // huecos: saltear algunas ventanas
+    if(rnd()<0.06) continue;
+    if(rnd()<0.04){ // hueco largo
+      const skip=2+Math.floor(rnd()*6); i-=skip; if(i<0)i=0; continue;
+    }
+    // batería ciclo carga/descarga
+    if(batt<25 && rnd()<0.6) charging=true;
+    if(batt>92) charging=false;
+    batt += charging? (2+rnd()*4) : -(0.5+rnd()*2.5);
+    batt=Math.max(5,Math.min(100,batt));
+    // pendientes
+    if(problem){ pend += rnd()<0.7? Math.round(rnd()*4):0; if(rnd()<0.05) pend=Math.round(pend*0.2); }
+    else { pend = rnd()<0.3?Math.round(rnd()*6):Math.max(0,pend-Math.round(rnd()*3)); }
+    const transport = rnd()<0.75?"wifi":(rnd()<0.6?"cellular":"none");
+    out.push({
+      received_at:new Date(t).toISOString(), reported_at:t-Math.round(rnd()*15000),
+      app_version_name:"3.4.1",
+      battery_pct:Math.round(batt), battery_charging:charging, battery_plugged:charging?"ac":"none",
+      battery_temp_c: 24+rnd()*16, net_transport:transport,
+      net_validated: transport==="none"?false:(rnd()<0.85),
+      wifi_rssi_dbm: transport==="wifi"?Math.round(-40-rnd()*45):null,
+      cell_level: transport==="cellular"?Math.round(rnd()*4):null, airplane_mode:false,
+      points_pending:Math.max(0,Math.round(pend)), oldest_pending_age_s:pend*900,
+      points_sent_48h:Math.round(rnd()*200), last_sync_ok: rnd()<0.9, last_sync_error:null,
+      storage_free_mb:Math.round(2000+rnd()*30000), ram_free_mb:Math.round(500+rnd()*2000),
+      ram_low:false, standby_bucket:"active", location_enabled:true,
+    });
+  }
+  return out;
+}
+</script>
+</body>
+</html>
+
