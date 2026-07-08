@@ -146,6 +146,15 @@
   .rowcrit td{background:color-mix(in oklab,var(--crit-bg) 30%,transparent)}
   .rowwarn td{background:color-mix(in oklab,var(--warn-bg) 25%,transparent)}
 
+  /* Fila de flota partida en 2 <tr>: rowA (datos principales) + rowB (seguimiento).
+     El borde inferior del grupo va sólo en rowB para que se vean "pegadas". */
+  .fleettbl tbody tr.rowA td{border-bottom:none}
+  .fleettbl tbody tr.rowB td.trackcell{
+    padding:2px 12px 8px;font-size:12px;line-height:1.7;white-space:normal;color:var(--dim);
+  }
+  /* Hover agrupado: JS agrega/saca .hoverpair en rowA+rowB juntas al pasar el mouse por cualquiera */
+  .fleettbl tbody tr.hoverpair{background:var(--panel2)}
+
   /* ---------- Badge ---------- */
   .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:20px;font-size:11.5px;font-weight:600;line-height:1.6}
   .badge .ic{width:14px;height:14px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;border-radius:50%}
@@ -697,35 +706,38 @@ function renderFleet(){
       const pcls = r.points_pending==null?"":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
       const dname=state.deviceNames.get(r.device_serial);
       const trk=state.trackingMap.get(r.device_serial);
-      const cuadrilla=trk&&!isNil(trk.cuadrilla)?trk.cuadrilla:null;
-      const yacimiento=trk&&!isNil(trk.yacimiento)?trk.yacimiento:null;
-      return `<tr data-serial="${esc(r.device_serial)}" class="${rowCls}">
+      const tv=(key)=> trk&&!isNil(trk[key])?esc(trk[key]):"—";
+      const serial=esc(r.device_serial);
+      const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}">
         <td><span class="serial">${esc(r.device_serial||"—")}</span></td>
         <td>${dname?esc(dname):'<span class="faint">—</span>'}</td>
-        <td><div class="cellstack" style="flex-direction:column;align-items:flex-start;gap:2px">
-          <span>${cuadrilla?esc(cuadrilla):'<span class="faint">—</span>'}</span>
-          <span class="dim">${yacimiento?esc(yacimiento):'<span class="faint">—</span>'}</span>
-        </div></td>
         <td><div class="cellstack">
           <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
           <span class="reason r-${m.cls}">${esc(s.main)}</span>
         </div></td>
         <td>${s.recv?relTime(s.recv):'<span class="faint">sin dato</span>'}</td>
         <td><span class="batt">${batteryIcon(r.battery_pct,r.battery_charging)} ${r.battery_pct==null?'<span class="faint">—</span>':r.battery_pct+"%"}</span></td>
-        <td class="col-hide-sm"><span class="netcell"><span class="nettag"><span class="netdot" style="background:${netDotColor(r)}"></span>${esc(netLabel(r))}</span></span></td>
         <td class="${pcls}">${r.points_pending==null?'<span class="faint">—</span>':r.points_pending}</td>
         <td class="col-hide-sm">${r.app_version_name?'<span class="mono" style="font-size:12px">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
+      const trackHtml = trk
+        ? `<span class="faint">Cuadrilla:</span> ${tv("cuadrilla")} ·
+           <span class="faint">Yacimiento:</span> ${tv("yacimiento")} ·
+           <span class="faint">Proveedor:</span> ${tv("proveedor")} ·
+           <span class="faint">Nº:</span> ${tv("numero")} ·
+           <span class="faint">Cel:</span> ${tv("celular")} ·
+           <span class="faint">SMOC:</span> ${tv("usuario_smoc")}`
+        : `<span class="faint">Sin datos de seguimiento — completar en el detalle</span>`;
+      const rowB=`<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="7" class="trackcell">${trackHtml}</td></tr>`;
+      return rowA+rowB;
     }).join("");
-    bodyHtml=`<div class="tablewrap"><table>
+    bodyHtml=`<div class="tablewrap"><table class="fleettbl">
       <thead><tr>
         <th class="sortable" data-sort="serial">Serial ${arrow("serial")}</th>
         <th>Nombre</th>
-        <th>Cuadrilla / Yacimiento</th>
         <th class="sortable" data-sort="status">Estado y motivo ${arrow("status")}</th>
         <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
-        <th class="col-hide-sm">Red</th>
         <th class="sortable" data-sort="pending">Pend. ${arrow("pending")}</th>
         <th class="col-hide-sm">Versión</th>
       </tr></thead>
@@ -750,6 +762,17 @@ function renderFleet(){
     render();
   });
   content().querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.serial));
+
+  // Hover agrupado: rowA (datos) + rowB (seguimiento) son 2 <tr> del mismo device y
+  // deben iluminarse juntas. Sin selector CSS de "hermano anterior", se resuelve con
+  // JS: cada par comparte un mismo listener que agrega/saca .hoverpair en ambas filas.
+  content().querySelectorAll(".fleettbl tbody tr.rowA").forEach(tr=>{
+    const sib=tr.nextElementSibling;
+    const pair = sib && sib.classList.contains("rowB") ? [tr,sib] : [tr];
+    const on=()=>pair.forEach(x=>x.classList.add("hoverpair"));
+    const off=()=>pair.forEach(x=>x.classList.remove("hoverpair"));
+    pair.forEach(x=>{ x.addEventListener("mouseenter",on); x.addEventListener("mouseleave",off); });
+  });
 
   // El nodo #fleetMap recién existe en el DOM después de asignar innerHTML arriba;
   // por eso la inicialización de Leaflet va acá al final, no en la rama de bodyHtml.
