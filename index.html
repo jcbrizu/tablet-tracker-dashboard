@@ -112,6 +112,13 @@
   .segmented button.on{background:var(--panel3);color:var(--text)}
   .segmented .dot{width:8px;height:8px;border-radius:50%}
   .dot-crit{background:var(--crit)} .dot-warn{background:var(--warn)} .dot-ok{background:var(--ok)}
+  .ugfilter{display:inline-flex;align-items:center;gap:6px}
+  .ugfilter label{font-size:12px;color:var(--dim);font-weight:600}
+  .ugfilter select{
+    height:34px;padding:0 10px;border:1px solid var(--border);border-radius:7px;
+    background:var(--panel);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;
+  }
+  .ugfilter select:focus{outline:none;border-color:var(--accent)}
 
   /* ---------- Table ---------- */
   /* overflow:clip (no hidden): hidden crea un scroll container y el thead sticky
@@ -342,6 +349,7 @@ const state = {
   lastRefresh:null,
   search:"",
   filter:"all",        // all | critical | warning | ok | stale
+  ugFilter:"all",      // all | <UG> | none
   sort:{key:"status", dir:"asc"},
   device:null,
   range:"24h",         // 24h | 7d | 30d
@@ -361,6 +369,14 @@ const timeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,hour:"2-digit",minute
 
 function isNil(v){ return v===null||v===undefined||v===""; }
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// Extrae la Unidad de Gestión (UG) codificada en el nombre del device:
+// "TAB GSJ PETROSAR CP2216..." -> "GSJ". Nombres que no matchean -> null.
+function ugOf(name){
+  if(isNil(name)) return null;
+  const m=String(name).trim().match(/^TAB\s+([A-ZÑÁÉÍÓÚ0-9]{2,5})\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
 
 function toDate(v){ // timestamptz string
   if(isNil(v)) return null;
@@ -519,10 +535,28 @@ function renderFleet(){
   const counts={total:rows.length,critical:0,warning:0,ok:0,stale:0};
   rows.forEach(x=>{ counts[x.s.level]++; if(x.s.ageMin!=null && x.s.ageMin>60) counts.stale++; });
 
+  // UG presentes en la flota actual (para el selector) + validación de selección vigente
+  const ugCounts=new Map();
+  let ugNoneCount=0;
+  rows.forEach(x=>{
+    const ug=ugOf(state.deviceNames.get(x.r.device_serial));
+    if(ug) ugCounts.set(ug,(ugCounts.get(ug)||0)+1);
+    else ugNoneCount++;
+  });
+  const ugList=[...ugCounts.keys()].sort((a,b)=>a.localeCompare(b));
+  if(state.ugFilter!=="all"){
+    const stillValid = state.ugFilter==="none" ? ugNoneCount>0 : ugCounts.has(state.ugFilter);
+    if(!stillValid) state.ugFilter="all";
+  }
+
   // filtro + búsqueda
   let list=rows.slice();
   if(state.filter==="stale") list=list.filter(x=>x.s.ageMin!=null && x.s.ageMin>60);
   else if(state.filter!=="all") list=list.filter(x=>x.s.level===state.filter);
+  if(state.ugFilter!=="all"){
+    if(state.ugFilter==="none") list=list.filter(x=>!ugOf(state.deviceNames.get(x.r.device_serial)));
+    else list=list.filter(x=>ugOf(state.deviceNames.get(x.r.device_serial))===state.ugFilter);
+  }
   const q=state.search.trim().toLowerCase();
   if(q) list=list.filter(x=>
     String(x.r.device_serial||"").toLowerCase().includes(q) ||
@@ -568,6 +602,14 @@ function renderFleet(){
         <button data-filter="critical" class="${state.filter==="critical"?"on":""}"><span class="dot dot-crit"></span>Críticas</button>
         <button data-filter="warning" class="${state.filter==="warning"?"on":""}"><span class="dot dot-warn"></span>Atención</button>
         <button data-filter="ok" class="${state.filter==="ok"?"on":""}"><span class="dot dot-ok"></span>OK</button>
+      </div>
+      <div class="ugfilter">
+        <label for="ugFilterSelect">UG</label>
+        <select id="ugFilterSelect">
+          <option value="all" ${state.ugFilter==="all"?"selected":""}>Todas</option>
+          ${ugList.map(ug=>`<option value="${esc(ug)}" ${state.ugFilter===ug?"selected":""}>${esc(ug)} (${ugCounts.get(ug)})</option>`).join("")}
+          ${ugNoneCount>0?`<option value="none" ${state.ugFilter==="none"?"selected":""}>Sin UG (${ugNoneCount})</option>`:""}
+        </select>
       </div>
     </div>`;
 
@@ -616,6 +658,8 @@ function renderFleet(){
   // eventos
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.filter; render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.filter; render(); });
+  const ugSel=document.getElementById("ugFilterSelect");
+  if(ugSel){ ugSel.onchange=()=>{ state.ugFilter=ugSel.value; render(); }; }
   const si=document.getElementById("searchInput");
   if(si){ si.oninput=()=>{ state.search=si.value; render(); const el=document.getElementById("searchInput"); if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);} }; }
   content().querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{
