@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Monitoreo de flota · Tablets de campo</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
 <style>
   :root{
     --bg:#e9ecef; --panel:#ffffff; --panel2:#f4f6f7; --panel3:#eceff1;
@@ -125,6 +126,8 @@
      se "pega" dentro de la tarjeta, desplazado 52px, tapando filas. clip recorta
      las esquinas igual pero deja al sticky referenciar el viewport. */
   .tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:clip;box-shadow:var(--shadow)}
+  #fleetMap{width:100%;height:65vh}
+  .offmap-caption{font-size:12px;color:var(--dim);margin:8px 2px 0}
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead th{
     text-align:left;font-weight:600;color:var(--dim);font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;
@@ -322,6 +325,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -349,6 +353,7 @@ const state = {
   lastRefresh:null,
   search:"",
   filter:"all",        // all | critical | warning | ok | stale
+  fleetView:"table",   // table | map — vista de la lista de flota
   ugFilter:"all",      // all | <UG> | none
   sort:{key:"status", dir:"asc"},
   device:null,
@@ -358,6 +363,14 @@ const state = {
   deviceNames:new Map(), // device_serial -> device_name
 };
 let refreshTimer=null, clockTimer=null;
+// Instancia única de Leaflet para la vista Mapa de la flota. render() reconstruye
+// el innerHTML de #content en cada refresh/filtro, y Leaflet tira "Map container
+// is already initialized" si se llama L.map() dos veces sobre el mismo nodo del
+// DOM (aunque el nodo viejo ya no esté en pantalla). Estrategia elegida: guardar
+// la instancia acá; antes de crear una nueva, si existe una vieja se la destruye
+// con .remove() y se limpia la referencia. Así sobrevive al auto-refresh de 60s
+// sin duplicar mapas, sin leaks y sin listeners fantasma.
+let fleetMapInstance=null;
 
 /* ============================================================
    Utilidades de formato (AR / español / NULL)
@@ -531,6 +544,11 @@ function render(){
 
 /* ---------------- FLOTA ---------------- */
 function renderFleet(){
+  // Destruir cualquier mapa Leaflet previo ANTES de tocar el DOM: el nodo #fleetMap
+  // de un render anterior ya no existe una vez que innerHTML se reasigna más abajo,
+  // así que si no liberamos la instancia acá quedaría una referencia colgante.
+  if(fleetMapInstance){ fleetMapInstance.remove(); fleetMapInstance=null; }
+
   const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
 
   // UG presentes en la flota actual (para el selector) + validación de selección vigente
@@ -614,13 +632,38 @@ function renderFleet(){
           ${ugNoneCount>0?`<option value="none" ${state.ugFilter==="none"?"selected":""}>Sin UG (${ugNoneCount})</option>`:""}
         </select>
       </div>
+      <div class="segmented" id="viewSeg">
+        <button data-view="table" class="${state.fleetView==="table"?"on":""}">Tabla</button>
+        <button data-view="map" class="${state.fleetView==="map"?"on":""}">Mapa</button>
+      </div>
     </div>`;
 
   let bodyHtml;
+  let mapGeopoints=null; // sólo se llena si vamos a inicializar Leaflet después de pintar el DOM
+  let offMapCaptionHtml="";
   if(rows.length===0){
     bodyHtml=`<div class="tablewrap"><div class="empty"><div class="big">No hay tablets reportando</div>Ninguna tablet envió un latido en los últimos 30 días.</div></div>`;
   }else if(list.length===0){
     bodyHtml=`<div class="tablewrap"><div class="empty"><div class="big">Sin resultados</div>No hay tablets que coincidan con el filtro o la búsqueda.</div></div>`;
+  }else if(state.fleetView==="map"){
+    // Mismo `list` que la tabla (ya filtrado por UG + estado + búsqueda): sólo
+    // separamos los que tienen coordenadas finitas de los que no.
+    const withCoords=[], withoutCount0=list.length;
+    list.forEach(({r,s})=>{
+      const lat=isNil(r.last_fix_lat_approx)?null:Number(r.last_fix_lat_approx);
+      const lon=isNil(r.last_fix_lon_approx)?null:Number(r.last_fix_lon_approx);
+      if(lat!=null && lon!=null && isFinite(lat) && isFinite(lon)) withCoords.push({r,s,lat,lon});
+    });
+    const withoutCount=withoutCount0-withCoords.length;
+    if(withCoords.length===0){
+      bodyHtml=`<div class="tablewrap"><div class="empty"><div class="big">Sin zona para mapear</div>Ninguna tablet del filtro tiene zona para mapear</div></div>`;
+    }else{
+      bodyHtml=`<div class="tablewrap"><div id="fleetMap"></div></div>`;
+      mapGeopoints=withCoords;
+      if(withoutCount>0){
+        offMapCaptionHtml=`<div class="offmap-caption">${esc(String(withoutCount))} tablets sin zona (no aparecen en el mapa)</div>`;
+      }
+    }
   }else{
     const trs=list.map(({r,s})=>{
       const m=LEVEL_META[s.level];
@@ -656,11 +699,12 @@ function renderFleet(){
     </table></div>`;
   }
 
-  content().innerHTML=`<div class="wrap">${cardsHtml}${toolbar}${bodyHtml}</div>`;
+  content().innerHTML=`<div class="wrap">${cardsHtml}${toolbar}${bodyHtml}${offMapCaptionHtml}</div>`;
 
   // eventos
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.filter; render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.filter; render(); });
+  content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ state.fleetView=b.dataset.view; render(); });
   const ugSel=document.getElementById("ugFilterSelect");
   if(ugSel){ ugSel.onchange=()=>{ state.ugFilter=ugSel.value; render(); }; }
   const si=document.getElementById("searchInput");
@@ -672,6 +716,72 @@ function renderFleet(){
     render();
   });
   content().querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>openDetail(tr.dataset.serial));
+
+  // El nodo #fleetMap recién existe en el DOM después de asignar innerHTML arriba;
+  // por eso la inicialización de Leaflet va acá al final, no en la rama de bodyHtml.
+  if(mapGeopoints && mapGeopoints.length) initFleetMap(mapGeopoints);
+}
+
+/* ---------------- Mapa de flota (Leaflet) ---------------- */
+
+// Lee el color de estado desde las custom properties del tema activo (--crit /
+// --warn / --ok) en vez de hardcodear hex, así el mapa respeta claro/oscuro
+// igual que el resto de los indicadores.
+function statusColor(level){
+  const varName = level==="critical"?"--crit":level==="warning"?"--warn":"--ok";
+  const v=getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  return v||"#888";
+}
+
+// Offset visual DETERMINÍSTICO por serial, sólo para separar en pantalla tablets
+// que caen en la misma celda de grilla de ~1km (last_fix_lat/lon_approx puede
+// repetirse entre varios dispositivos). Es puramente decorativo: NUNCA se
+// persiste, no viaja al servidor ni se usa para ningún cálculo — sólo desplaza
+// dónde se dibuja el círculo en este mapa.
+function serialDisplayOffset(serial){
+  const h=hashStr(String(serial||""));
+  const angle=(h%6283)/1000;          // 0..2π aprox
+  const radius=((h>>>8)%400)/100000;  // 0..~0.004°
+  return {dLat:radius*Math.sin(angle), dLon:radius*Math.cos(angle)};
+}
+
+function initFleetMap(points){
+  const mapEl=document.getElementById("fleetMap");
+  if(!mapEl || typeof L==="undefined") return;
+
+  const map=L.map("fleetMap");
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    maxZoom:19,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  const group=L.featureGroup();
+  const placed=[];
+  points.forEach(({r,s,lat,lon})=>{
+    const off=serialDisplayOffset(r.device_serial);
+    const dLat=lat+off.dLat, dLon=lon+off.dLon;
+    const m=LEVEL_META[s.level];
+    const dname=state.deviceNames.get(r.device_serial);
+    const nameHtml = dname?esc(dname):esc(r.device_serial||"—");
+    const marker=L.circleMarker([dLat,dLon],{
+      radius:9, color:"#fff", weight:1.5, fillOpacity:.9, fillColor:statusColor(s.level)
+    });
+    marker.bindTooltip(
+      `<strong>${nameHtml}</strong><br>${esc(m.word)}: ${esc(s.main)}`,
+      {direction:"top", offset:[0,-10]}
+    );
+    marker.on("click",()=>openDetail(r.device_serial));
+    marker.addTo(group);
+    placed.push({dLat,dLon});
+  });
+  group.addTo(map);
+
+  if(placed.length===1){
+    map.setView([placed[0].dLat,placed[0].dLon],10);
+  }else{
+    map.fitBounds(group.getBounds().pad(0.3));
+  }
+  fleetMapInstance=map;
 }
 
 /* ---------------- DETALLE ---------------- */
