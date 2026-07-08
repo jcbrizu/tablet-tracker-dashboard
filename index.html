@@ -377,6 +377,7 @@ const state = {
   history:null,
   histLoading:false,
   deviceNames:new Map(), // device_serial -> device_name
+  trackingMap:new Map(), // device_serial -> fila de device_tracking (para la tabla de flota)
   tracking:null,        // fila de device_tracking del device abierto (o null si no existe aún)
   trackingHistory:null, // null=cargando, [] =sin historial, array=filas de device_tracking_history
 };
@@ -597,10 +598,17 @@ function renderFleet(){
   if(state.filter==="stale") list=list.filter(x=>x.s.ageMin!=null && x.s.ageMin>60);
   else if(state.filter!=="all") list=list.filter(x=>x.s.level===state.filter);
   const q=state.search.trim().toLowerCase();
-  if(q) list=list.filter(x=>
-    String(x.r.device_serial||"").toLowerCase().includes(q) ||
-    String(state.deviceNames.get(x.r.device_serial)||"").toLowerCase().includes(q)
-  );
+  if(q) list=list.filter(x=>{
+    if(String(x.r.device_serial||"").toLowerCase().includes(q)) return true;
+    if(String(state.deviceNames.get(x.r.device_serial)||"").toLowerCase().includes(q)) return true;
+    const trk=state.trackingMap.get(x.r.device_serial);
+    if(trk){
+      for(const key of ["usuario_smoc","cuadrilla","numero","yacimiento","proveedor","celular"]){
+        if(!isNil(trk[key]) && String(trk[key]).toLowerCase().includes(q)) return true;
+      }
+    }
+    return false;
+  });
 
   // orden
   const dir=state.sort.dir==="asc"?1:-1;
@@ -634,7 +642,7 @@ function renderFleet(){
     <div class="toolbar">
       <div class="search">
         <span class="mag"></span>
-        <input id="searchInput" type="search" placeholder="Buscar por serial o nombre…" value="${esc(state.search)}" />
+        <input id="searchInput" type="search" placeholder="Buscar por serial, nombre, cuadrilla…" value="${esc(state.search)}" />
       </div>
       <div class="segmented" id="filterSeg">
         <button data-filter="all" class="${state.filter==="all"?"on":""}">Todas</button>
@@ -688,9 +696,16 @@ function renderFleet(){
       const rowCls = s.level==="critical"?"rowcrit":s.level==="warning"?"rowwarn":"";
       const pcls = r.points_pending==null?"":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
       const dname=state.deviceNames.get(r.device_serial);
+      const trk=state.trackingMap.get(r.device_serial);
+      const cuadrilla=trk&&!isNil(trk.cuadrilla)?trk.cuadrilla:null;
+      const yacimiento=trk&&!isNil(trk.yacimiento)?trk.yacimiento:null;
       return `<tr data-serial="${esc(r.device_serial)}" class="${rowCls}">
         <td><span class="serial">${esc(r.device_serial||"—")}</span></td>
         <td>${dname?esc(dname):'<span class="faint">—</span>'}</td>
+        <td><div class="cellstack" style="flex-direction:column;align-items:flex-start;gap:2px">
+          <span>${cuadrilla?esc(cuadrilla):'<span class="faint">—</span>'}</span>
+          <span class="dim">${yacimiento?esc(yacimiento):'<span class="faint">—</span>'}</span>
+        </div></td>
         <td><div class="cellstack">
           <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
           <span class="reason r-${m.cls}">${esc(s.main)}</span>
@@ -706,6 +721,7 @@ function renderFleet(){
       <thead><tr>
         <th class="sortable" data-sort="serial">Serial ${arrow("serial")}</th>
         <th>Nombre</th>
+        <th>Cuadrilla / Yacimiento</th>
         <th class="sortable" data-sort="status">Estado y motivo ${arrow("status")}</th>
         <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
@@ -1064,6 +1080,9 @@ async function saveSeguimiento(){
     const {error}=await sb.from("device_tracking").upsert(row,{onConflict:"device_serial"});
     if(error) throw error;
     segDraft={}; // lo guardado ya está confirmado — de acá en más mostrar lo que devuelva el server
+    // Reflejar el guardado en la columna "Cuadrilla / Yacimiento" de la tabla de
+    // flota sin esperar al próximo refresh de loadTrackingMap() (surgical update).
+    state.trackingMap.set(serial,{...(state.trackingMap.get(serial)||{}),...row});
     // loadTracking() reconstruye #segCard (repuebla updated_by/updated_at server-side
     // + refresca el historial), lo que reemplaza btn/msgEl por nodos nuevos — por eso
     // el mensaje de éxito se escribe DESPUÉS, sobre el nodo fresco, no sobre msgEl.
@@ -1275,6 +1294,7 @@ async function loadFleet(silent){
     if(!silent) showBanner("No se pudieron cargar los datos de la flota. "+(e.message||""),"err");
   }
   loadDeviceNames();
+  loadTrackingMap();
 }
 
 async function loadDeviceNames(){
@@ -1291,6 +1311,24 @@ async function loadDeviceNames(){
     render();
   }catch(e){
     console.warn("No se pudieron cargar los nombres de dispositivo:",e);
+  }
+}
+
+async function loadTrackingMap(){
+  if(state.demo || !sb) return;
+  try{
+    // Mismo approach que loadDeviceNames: sólo los seriales en pantalla, para no
+    // pisar el límite de filas por consulta de Supabase.
+    const serials=(state.fleet||[]).map(r=>r.device_serial).filter(Boolean);
+    if(!serials.length) return;
+    const {data,error}=await sb.from("device_tracking")
+      .select("device_serial,usuario_smoc,cuadrilla,numero,yacimiento,proveedor,celular")
+      .in("device_serial",serials);
+    if(error) throw error;
+    state.trackingMap=new Map((data||[]).map(d=>[d.device_serial,d]));
+    render();
+  }catch(e){
+    console.warn("No se pudo cargar Seguimiento de la flota:",e);
   }
 }
 
