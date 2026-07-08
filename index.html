@@ -469,6 +469,7 @@ function num(v,unit,dec){
   return {t:n+(unit?" "+unit:""),n:false};
 }
 function boolTxt(v){ if(isNil(v)) return {t:"—",n:true}; return {t:v?"Sí":"No",n:false}; }
+function boolSiNo(v){ if(isNil(v)) return ""; return v?"Sí":"No"; }
 function fmtMB(v){
   if(isNil(v)) return {t:"—",n:true};
   const n=Number(v); if(!isFinite(n)) return {t:"—",n:true};
@@ -518,6 +519,59 @@ const LEVEL_META={
   warning:{cls:"warn",word:"Atención",ic:"!"},
   ok:{cls:"ok",word:"OK",ic:"✓"},
 };
+
+/* ============================================================
+   Exportar CSV de la flota (vista Tabla/Mapa) — es-AR: separador ';',
+   BOM UTF-8, CRLF. Único helper de escapado para todas las celdas.
+   ============================================================ */
+function csvCell(v){
+  if(isNil(v)) return "";
+  const s=String(v);
+  if(/[;"\n\r]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+function arDateStamp(d){
+  // en-CA formatea como YYYY-MM-DD; se fuerza el huso AR para que la fecha
+  // del nombre del archivo coincida con "hoy" en Argentina, no en UTC/local del browser.
+  return new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).format(d);
+}
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Batería %","Cargando","Puntos pendientes","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
+function fleetRowToCsvCols({r,s}){
+  const dname=state.deviceNames.get(r.device_serial);
+  const trk=state.trackingMap.get(r.device_serial);
+  const tv=(key)=> trk&&!isNil(trk[key])?trk[key]:"";
+  return [
+    r.device_serial||"",
+    dname||"",
+    ugOf(dname)||"",
+    LEVEL_META[s.level].word,
+    s.main||"",
+    s.recv?dtFmt.format(s.recv):"",
+    r.app_version_name||"",
+    isNil(r.battery_pct)?"":r.battery_pct,
+    boolSiNo(r.battery_charging),
+    isNil(r.points_pending)?"":r.points_pending,
+    boolSiNo(r.last_sync_ok),
+    r.last_sync_error_detail||"",
+    tv("cuadrilla"), tv("yacimiento"), tv("proveedor"), tv("numero"), tv("celular"), tv("usuario_smoc"),
+    isNil(r.last_fix_lat_approx)?"":r.last_fix_lat_approx,
+    isNil(r.last_fix_lon_approx)?"":r.last_fix_lon_approx,
+  ];
+}
+function exportFleetCsv(list){
+  const lines=[CSV_HEADERS, ...list.map(fleetRowToCsvCols)]
+    .map(cols=>cols.map(csvCell).join(";"))
+    .join("\r\n");
+  const blob=new Blob(["\uFEFF"+lines],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`flota-tablet-tracker-${arDateStamp(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 
 /* ============================================================
    Iconos mínimos (rects/polígono simple)
@@ -671,6 +725,7 @@ function renderFleet(){
         <button data-view="table" class="${state.fleetView==="table"?"on":""}">Tabla</button>
         <button data-view="map" class="${state.fleetView==="map"?"on":""}">Mapa</button>
       </div>
+      <button class="iconbtn" id="exportCsvBtn" type="button" title="Descargar CSV de la flota filtrada" ${list.length===0?"disabled":""}>⬇ Exportar</button>
     </div>`;
 
   let bodyHtml;
@@ -751,6 +806,11 @@ function renderFleet(){
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.filter; render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.filter; render(); });
   content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ state.fleetView=b.dataset.view; render(); });
+  const exportBtn=document.getElementById("exportCsvBtn");
+  // `list` es el mismo array (filtrado por UG+estado+búsqueda y ordenado) que
+  // renderiza la tabla/mapa de este render puntual: closure captura la versión
+  // vigente, no una copia vieja — cada render vuelve a wirear este handler.
+  if(exportBtn){ exportBtn.onclick=()=>exportFleetCsv(list); }
   const ugSel=document.getElementById("ugFilterSelect");
   if(ugSel){ ugSel.onchange=()=>{ state.ugFilter=ugSel.value; render(); }; }
   const si=document.getElementById("searchInput");
