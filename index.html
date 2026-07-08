@@ -183,6 +183,22 @@
   .mapcard .mapcaption{font-size:11.5px;color:var(--dim);margin:0 0 8px}
   .mapcard iframe{display:block;width:100%;height:260px;border:1px solid var(--border);border-radius:6px}
   .mapcard .maplink{display:inline-block;margin-top:8px;font-size:12.5px}
+
+  /* ---------- Seguimiento (panel editable + historial) ---------- */
+  .seg-body{display:flex;flex-direction:column;gap:12px}
+  .seg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  .seg-field{display:flex;flex-direction:column;gap:4px}
+  .seg-field label{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .seg-field input{height:34px;padding:0 10px;border:1px solid var(--border);border-radius:7px;background:var(--panel2);color:var(--text);font-size:13px}
+  .seg-field input:focus{outline:none;border-color:var(--accent);background:var(--panel)}
+  .seg-actions{display:flex;align-items:center;gap:12px}
+  .seg-actions .btn-primary{width:auto;padding:0 18px;height:34px}
+  .seg-msg{font-size:12.5px;min-height:16px}
+  .seg-caption{font-size:11.5px;color:var(--dim)}
+  .seg-hist-list{max-height:260px;overflow:auto}
+  .seg-hist-item{padding:8px 13px;border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.5}
+  .seg-hist-item:last-child{border-bottom:none}
+  .seg-hist-item .meta{color:var(--dim);font-weight:600}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 13px;border-bottom:1px solid var(--border);font-size:12.5px}
   .kv:last-child{border-bottom:none}
   .kv .k{color:var(--dim)}
@@ -361,6 +377,8 @@ const state = {
   history:null,
   histLoading:false,
   deviceNames:new Map(), // device_serial -> device_name
+  tracking:null,        // fila de device_tracking del device abierto (o null si no existe aún)
+  trackingHistory:null, // null=cargando, [] =sin historial, array=filas de device_tracking_history
 };
 let refreshTimer=null, clockTimer=null;
 // Instancia única de Leaflet para la vista Mapa de la flota. render() reconstruye
@@ -787,8 +805,9 @@ function initFleetMap(points){
 /* ---------------- DETALLE ---------------- */
 async function openDetail(serial){
   state.view="detail"; state.device=serial; state.history=null; state.histLoading=true;
+  state.tracking=null; state.trackingHistory=null; segDraft={};
   render();
-  await loadHistory();
+  await Promise.all([loadHistory(), loadTracking()]);
 }
 
 function renderDetail(){
@@ -887,6 +906,7 @@ function renderDetail(){
       </div>
     </div>
     <div class="groups">${gApp}${gBatt}${gNet}${gGps}${gSys}</div>
+    <div id="segCard"></div>
     ${gMap}
 
     <div class="panelbox">
@@ -900,6 +920,160 @@ function renderDetail(){
   content().querySelectorAll("#rangeSeg button").forEach(b=>b.onclick=async()=>{ state.range=b.dataset.r; state.history=null; state.histLoading=true; renderDetail(); await loadHistory(); });
 
   renderHistory();
+  renderSeguimiento();
+}
+
+/* ---------------- SEGUIMIENTO (panel editable + historial) ---------------- */
+
+// device_tracking: 6 campos editables por el usuario. updated_by/updated_at
+// los pone el trigger del server — nunca se mandan desde acá.
+const SEG_FIELDS=[
+  {key:"usuario_smoc", label:"Usuario de SMOC"},
+  {key:"cuadrilla",    label:"Nombre de cuadrilla"},
+  {key:"numero",       label:"Número"},
+  {key:"yacimiento",   label:"Yacimiento"},
+  {key:"proveedor",    label:"Proveedor"},
+  {key:"celular",      label:"Nro de celular"},
+];
+const SEG_FIELD_LABELS=new Map(SEG_FIELDS.map(f=>[f.key,f.label]));
+
+// Borrador en memoria de lo que la persona está tipeando, separado de
+// state.tracking (la última foto confirmada del server). El refresco automático
+// de 60s y los clicks en "24h/7d/30d" fuerzan un renderDetail() completo que
+// reconstruye #segCard desde cero; si el valor de cada input saliera solo de
+// state.tracking se perdería lo tipeado a mitad de edición. Cada input escribe
+// acá en su oninput (sin re-renderizar), y renderSeguimiento() lee de acá primero.
+// Se vacía al abrir otra tablet (openDetail) y al guardar con éxito, momento en
+// que state.tracking ya refleja lo guardado.
+let segDraft={};
+
+function seguimientoFieldValue(key){
+  if(Object.prototype.hasOwnProperty.call(segDraft,key)) return segDraft[key];
+  const t=state.tracking;
+  return (t && !isNil(t[key])) ? t[key] : "";
+}
+
+function seguimientoHistoryHtml(){
+  const h=state.trackingHistory;
+  if(h==null) return `<div class="empty" style="padding:16px">Cargando historial…</div>`;
+  if(h.length===0) return `<div class="empty" style="padding:16px">Sin cambios registrados</div>`;
+  const items=h.map(row=>{
+    const label=SEG_FIELD_LABELS.get(row.campo)||row.campo;
+    const before=isNil(row.valor_anterior)?"—":row.valor_anterior;
+    const after=isNil(row.valor_nuevo)?"—":row.valor_nuevo;
+    return `<div class="seg-hist-item"><span class="meta">${esc(fmtDateTime(toDate(row.changed_at)))} · ${esc(row.changed_by||"—")}:</span> ${esc(label)}: "${esc(before)}" → "${esc(after)}"</div>`;
+  }).join("");
+  return `<div class="seg-hist-list">${items}</div>`;
+}
+
+function seguimientoCardHtml(){
+  const t=state.tracking;
+  const fieldsHtml=SEG_FIELDS.map(f=>`<div class="seg-field">
+    <label for="seg_${f.key}">${esc(f.label)}</label>
+    <input id="seg_${f.key}" data-field="${f.key}" type="text" autocomplete="off" value="${esc(seguimientoFieldValue(f.key))}" />
+  </div>`).join("");
+  const caption = (t && t.updated_by) ? `<div class="seg-caption">Última edición: ${esc(t.updated_by)} · ${esc(fmtDateTime(toDate(t.updated_at)))}</div>` : "";
+  return `<div class="mapcard">
+    <h3>Seguimiento</h3>
+    <div class="mapbody seg-body">
+      <div class="seg-grid">${fieldsHtml}</div>
+      <div class="seg-actions">
+        <button class="btn-primary" id="segSaveBtn" type="button">Guardar</button>
+        <span id="segMsg" class="seg-msg dim"></span>
+      </div>
+      ${caption}
+      <details class="raw">
+        <summary><span class="chev">▶</span> Historial de cambios</summary>
+        ${seguimientoHistoryHtml()}
+      </details>
+    </div>
+  </div>`;
+}
+
+function renderSeguimiento(){
+  const card=document.getElementById("segCard");
+  if(!card) return;
+
+  // Preservar foco + posición del cursor si la persona está escribiendo en un
+  // campo de Seguimiento justo cuando este re-render dispara (ver comentario
+  // de segDraft arriba) — el valor ya está a salvo vía segDraft, esto es sólo
+  // para no interrumpir la edición (no perder el cursor / no cerrar el teclado).
+  const active=document.activeElement;
+  let focusField=null, selStart=null, selEnd=null;
+  if(active && active.tagName==="INPUT" && active.dataset && active.dataset.field && card.contains(active)){
+    focusField=active.dataset.field; selStart=active.selectionStart; selEnd=active.selectionEnd;
+  }
+
+  card.innerHTML=seguimientoCardHtml();
+
+  card.querySelectorAll("input[data-field]").forEach(inp=>{
+    inp.oninput=()=>{ segDraft[inp.dataset.field]=inp.value; };
+  });
+  const saveBtn=document.getElementById("segSaveBtn");
+  if(saveBtn) saveBtn.onclick=saveSeguimiento;
+
+  if(focusField){
+    const el=card.querySelector(`input[data-field="${focusField}"]`);
+    if(el){ el.focus(); if(selStart!=null) el.setSelectionRange(selStart,selEnd); }
+  }
+}
+
+async function loadTracking(){
+  const serial=state.device;
+  if(!serial) return;
+  if(!sb){
+    state.tracking=null; state.trackingHistory=[];
+    if(state.view==="detail") renderSeguimiento();
+    return;
+  }
+  try{
+    const [trackRes,histRes]=await Promise.all([
+      sb.from("device_tracking").select("*").eq("device_serial",serial).maybeSingle(),
+      sb.from("device_tracking_history").select("*").eq("device_serial",serial).order("changed_at",{ascending:false}).limit(50),
+    ]);
+    if(trackRes.error) throw trackRes.error;
+    if(histRes.error) throw histRes.error;
+    if(state.device!==serial) return; // la persona ya navegó a otra tablet mientras esto cargaba
+    state.tracking=trackRes.data||null;
+    state.trackingHistory=histRes.data||[];
+  }catch(e){
+    console.warn("No se pudo cargar Seguimiento:",e);
+    if(state.device===serial && state.trackingHistory==null) state.trackingHistory=[];
+  }
+  if(state.view==="detail") renderSeguimiento();
+}
+
+async function saveSeguimiento(){
+  const serial=state.device;
+  if(!serial) return;
+  const btn=document.getElementById("segSaveBtn");
+  const msgEl=document.getElementById("segMsg");
+  if(!sb){ if(msgEl) msgEl.textContent="No hay conexión con el servidor."; return; }
+
+  const row={device_serial:serial};
+  SEG_FIELDS.forEach(f=>{
+    const el=document.getElementById("seg_"+f.key);
+    const v = el ? el.value.trim() : "";
+    row[f.key] = v===""?null:v;
+  });
+
+  const prevLabel=btn?btn.textContent:"";
+  if(btn){ btn.disabled=true; btn.textContent="Guardando…"; }
+  if(msgEl) msgEl.textContent="";
+  try{
+    const {error}=await sb.from("device_tracking").upsert(row,{onConflict:"device_serial"});
+    if(error) throw error;
+    segDraft={}; // lo guardado ya está confirmado — de acá en más mostrar lo que devuelva el server
+    // loadTracking() reconstruye #segCard (repuebla updated_by/updated_at server-side
+    // + refresca el historial), lo que reemplaza btn/msgEl por nodos nuevos — por eso
+    // el mensaje de éxito se escribe DESPUÉS, sobre el nodo fresco, no sobre msgEl.
+    await loadTracking();
+    const freshMsg=document.getElementById("segMsg");
+    if(freshMsg) freshMsg.textContent="Guardado ✓";
+  }catch(e){
+    if(msgEl) msgEl.textContent="No se pudo guardar. "+(e&&e.message?e.message:"");
+    if(btn){ btn.disabled=false; btn.textContent=prevLabel||"Guardar"; }
+  }
 }
 
 function rangeMs(){ return state.range==="24h"?864e5 : state.range==="7d"?7*864e5 : 30*864e5; }
