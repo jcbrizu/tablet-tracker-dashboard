@@ -949,7 +949,12 @@ async function loadFleet(silent){
 async function loadDeviceNames(){
   if(state.demo || !sb) return;
   try{
-    const {data,error}=await sb.from("devices").select("device_serial,device_name");
+    // Pedir SOLO los nombres de los seriales en pantalla: la tabla devices puede
+    // superar el limite de 1000 filas por consulta de Supabase (aprendido con 1204
+    // dispositivos: el select sin filtro devolvia un subconjunto cambiante).
+    const serials=(state.fleet||[]).map(r=>r.device_serial).filter(Boolean);
+    if(!serials.length) return;
+    const {data,error}=await sb.from("devices").select("device_serial,device_name").in("device_serial",serials);
     if(error) throw error;
     state.deviceNames=new Map((data||[]).map(d=>[d.device_serial,d.device_name]));
     render();
