@@ -532,8 +532,6 @@ function render(){
 /* ---------------- FLOTA ---------------- */
 function renderFleet(){
   const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
-  const counts={total:rows.length,critical:0,warning:0,ok:0,stale:0};
-  rows.forEach(x=>{ counts[x.s.level]++; if(x.s.ageMin!=null && x.s.ageMin>60) counts.stale++; });
 
   // UG presentes en la flota actual (para el selector) + validación de selección vigente
   const ugCounts=new Map();
@@ -549,14 +547,19 @@ function renderFleet(){
     if(!stillValid) state.ugFilter="all";
   }
 
+  // Alcance según UG: las tarjetas de resumen y la tabla cuentan lo mismo
+  let scoped=rows.slice();
+  if(state.ugFilter!=="all"){
+    if(state.ugFilter==="none") scoped=scoped.filter(x=>!ugOf(state.deviceNames.get(x.r.device_serial)));
+    else scoped=scoped.filter(x=>ugOf(state.deviceNames.get(x.r.device_serial))===state.ugFilter);
+  }
+  const counts={total:scoped.length,critical:0,warning:0,ok:0,stale:0};
+  scoped.forEach(x=>{ counts[x.s.level]++; if(x.s.ageMin!=null && x.s.ageMin>60) counts.stale++; });
+
   // filtro + búsqueda
-  let list=rows.slice();
+  let list=scoped.slice();
   if(state.filter==="stale") list=list.filter(x=>x.s.ageMin!=null && x.s.ageMin>60);
   else if(state.filter!=="all") list=list.filter(x=>x.s.level===state.filter);
-  if(state.ugFilter!=="all"){
-    if(state.ugFilter==="none") list=list.filter(x=>!ugOf(state.deviceNames.get(x.r.device_serial)));
-    else list=list.filter(x=>ugOf(state.deviceNames.get(x.r.device_serial))===state.ugFilter);
-  }
   const q=state.search.trim().toLowerCase();
   if(q) list=list.filter(x=>
     String(x.r.device_serial||"").toLowerCase().includes(q) ||
