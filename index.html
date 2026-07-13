@@ -350,7 +350,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.3/dist/umd/supabase.js" integrity="sha384-sihuiVHG7vyEIuePVbLI4QpHu1dbhCZe4Zqp0FuqnFeEnyIhF3koyXoBZyfbFsYs" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <script>
 "use strict";
@@ -527,7 +527,10 @@ const LEVEL_META={
    ============================================================ */
 function csvCell(v){
   if(isNil(v)) return "";
-  const s=String(v);
+  let s=String(v);
+  // Anti formula-injection: Excel/Sheets ejecutan celdas que empiezan con
+  // = + - @ (o tab/CR) como formula. Prefijamos ' para neutralizarlas.
+  if(/^[=+\-@\t\r]/.test(s)) s="'"+s;
   if(/[;"\n\r]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
   return s;
 }
