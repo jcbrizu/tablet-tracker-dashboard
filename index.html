@@ -174,6 +174,7 @@
   .netdot{width:8px;height:8px;border-radius:50%}
   .pend{font-weight:600}
   .pend.hi{color:var(--warn-text)} .pend.crit{color:var(--crit-text)}
+  .edited{color:var(--warn-text);cursor:default}
 
   /* ---------- Detail ---------- */
   .detail-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
@@ -535,7 +536,7 @@ function arDateStamp(d){
   // del nombre del archivo coincida con "hoy" en Argentina, no en UTC/local del browser.
   return new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).format(d);
 }
-const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Batería %","Cargando","Puntos pendientes","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Batería %","Cargando","Puntos pendientes","Intervalo (min)","Intervalo Intune (min)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
 function fleetRowToCsvCols({r,s}){
   const dname=state.deviceNames.get(r.device_serial);
   const trk=state.trackingMap.get(r.device_serial);
@@ -551,6 +552,8 @@ function fleetRowToCsvCols({r,s}){
     isNil(r.battery_pct)?"":r.battery_pct,
     boolSiNo(r.battery_charging),
     isNil(r.points_pending)?"":r.points_pending,
+    isNil(r.report_interval_min)?"":r.report_interval_min,
+    isNil(r.intune_interval_min)?"":r.intune_interval_min,
     boolSiNo(r.last_sync_ok),
     r.last_sync_error_detail||"",
     tv("cuadrilla"), tv("yacimiento"), tv("proveedor"), tv("numero"), tv("celular"), tv("usuario_smoc"),
@@ -773,6 +776,7 @@ function renderFleet(){
         <td>${s.recv?relTime(s.recv):'<span class="faint">sin dato</span>'}</td>
         <td><span class="batt">${batteryIcon(r.battery_pct,r.battery_charging)} ${r.battery_pct==null?'<span class="faint">—</span>':r.battery_pct+"%"}</span></td>
         <td class="${pcls}">${r.points_pending==null?'<span class="faint">—</span>':r.points_pending}</td>
+        <td>${r.report_interval_min==null?'<span class="faint">—</span>':esc(String(r.report_interval_min))+" min"+(r.intune_interval_min!=null&&r.intune_interval_min!==r.report_interval_min?' <span class="edited" title="Editado a mano (Intune: '+esc(String(r.intune_interval_min))+' min)">✎</span>':'')}</td>
         <td class="col-hide-sm">${r.app_version_name?'<span class="mono" style="font-size:12px">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
       const trackHtml = trk
@@ -783,7 +787,7 @@ function renderFleet(){
            <span class="faint">Cel:</span> ${tv("celular")} ·
            <span class="faint">SMOC:</span> ${tv("usuario_smoc")}`
         : `<span class="faint">Sin datos de seguimiento — completar en el detalle</span>`;
-      const rowB=`<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="7" class="trackcell">${trackHtml}</td></tr>`;
+      const rowB=`<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="8" class="trackcell">${trackHtml}</td></tr>`;
       return rowA+rowB;
     }).join("");
     bodyHtml=`<div class="tablewrap"><table class="fleettbl">
@@ -794,6 +798,7 @@ function renderFleet(){
         <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
         <th class="sortable" data-sort="pending">Pend. ${arrow("pending")}</th>
+        <th>Intervalo</th>
         <th class="col-hide-sm">Versión</th>
       </tr></thead>
       <tbody>${trs}</tbody>
