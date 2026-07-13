@@ -536,7 +536,7 @@ function arDateStamp(d){
   // del nombre del archivo coincida con "hoy" en Argentina, no en UTC/local del browser.
   return new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).format(d);
 }
-const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Batería %","Cargando","Puntos pendientes","Intervalo (min)","Intervalo Intune (min)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (min)","Intervalo Intune (min)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
 function fleetRowToCsvCols({r,s}){
   const dname=state.deviceNames.get(r.device_serial);
   const trk=state.trackingMap.get(r.device_serial);
@@ -549,6 +549,8 @@ function fleetRowToCsvCols({r,s}){
     s.main||"",
     s.recv?dtFmt.format(s.recv):"",
     r.app_version_name||"",
+    isNil(r.android_version)?"":String(r.android_version),
+    r.security_patch||"",
     isNil(r.battery_pct)?"":r.battery_pct,
     boolSiNo(r.battery_charging),
     isNil(r.points_pending)?"":r.points_pending,
