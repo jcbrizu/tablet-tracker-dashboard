@@ -270,20 +270,6 @@
   .link-btn{background:none;border:none;color:var(--accent);font-size:12.5px;font-weight:600;padding:0}
   .link-btn:hover{text-decoration:underline}
 
-  /* ---------- Modal ---------- */
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
-  .modal-card{width:100%;max-width:540px;max-height:86vh;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:22px}
-  html[data-theme="dark"] .modal-card{box-shadow:0 8px 40px rgba(0,0,0,.5)}
-  .modal-card h2{margin:0 0 10px;font-size:16px}
-  .modal-instructions{font-size:13px;color:var(--dim);margin:0 0 12px;line-height:1.5}
-  .modal-instructions code{display:block;margin-top:6px;padding:8px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:11.5px;word-break:break-all;user-select:all;color:var(--text)}
-  #namesInput{width:100%;min-height:160px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12.5px;resize:vertical}
-  #namesInput:focus{outline:none;border-color:var(--accent);background:var(--panel)}
-  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
-  .modal-actions .btn-primary{width:auto;padding:0 16px}
-  .modal-result{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:13px}
-  .modal-result.ok{background:var(--ok-bg);color:var(--ok-text)}
-  .modal-result.err{background:var(--crit-bg);color:var(--crit-text)}
 
   @media(max-width:640px){
     .wrap{padding:10px}
@@ -324,30 +310,12 @@
     <div class="brand"><span class="glyph"></span> Monitoreo de flota</div>
     <div class="spacer"></div>
     <div class="refresh-note" id="refreshNote"><span class="pulse" id="pulse"></span><span id="refreshTxt">—</span></div>
-    <button class="iconbtn" id="namesBtn" title="Actualizar nombres de dispositivos desde Intune">Nombres</button>
     <button class="iconbtn" id="manualRefresh" title="Actualizar ahora">↻ Actualizar</button>
     <button class="iconbtn" id="themeBtn" title="Cambiar tema">◐</button>
     <button class="iconbtn" id="logoutBtn">Salir</button>
   </div>
   <div id="demoBanner" class="demo-banner hidden">⚠ DATOS DE EJEMPLO — esto NO es el estado real de la flota</div>
   <div id="content"></div>
-</div>
-
-<!-- ============ MODAL: Actualizar nombres ============ -->
-<div id="namesModal" class="modal-overlay hidden">
-  <div class="modal-card">
-    <h2>Actualizar nombres de dispositivos</h2>
-    <p class="modal-instructions">
-      Pegá acá el resultado del Graph Explorer para esta consulta:
-      <code id="graphUrl">https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$select=deviceName,serialNumber,model&$top=999</code>
-    </p>
-    <textarea id="namesInput" placeholder="Pegá el JSON de la respuesta acá…"></textarea>
-    <div id="namesResult" class="hidden"></div>
-    <div class="modal-actions">
-      <button class="iconbtn" id="namesCloseBtn" type="button">Cerrar</button>
-      <button class="btn-primary" id="namesImportBtn" type="button">Importar</button>
-    </div>
-  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.3/dist/umd/supabase.js" integrity="sha384-sihuiVHG7vyEIuePVbLI4QpHu1dbhCZe4Zqp0FuqnFeEnyIhF3koyXoBZyfbFsYs" crossorigin="anonymous"></script>
@@ -1546,74 +1514,6 @@ document.getElementById("logoutBtn").onclick=async()=>{
 document.getElementById("manualRefresh").onclick=()=>{ loadFleet(); };
 document.getElementById("themeBtn").onclick=toggleTheme;
 
-/* ============================================================
-   Importador de nombres de dispositivos (Graph Explorer)
-   ============================================================ */
-function namesResultEl(){ return document.getElementById("namesResult"); }
-function showNamesResult(msg,type){
-  const el=namesResultEl();
-  el.textContent=msg;
-  el.className="modal-result "+type;
-}
-function openNamesModal(){
-  document.getElementById("namesInput").value="";
-  const el=namesResultEl(); el.textContent=""; el.className="hidden";
-  document.getElementById("namesModal").classList.remove("hidden");
-}
-function closeNamesModal(){
-  document.getElementById("namesModal").classList.add("hidden");
-}
-async function importDeviceNames(){
-  const btn=document.getElementById("namesImportBtn");
-  const raw=document.getElementById("namesInput").value;
-  let parsed;
-  try{
-    parsed=JSON.parse(raw);
-  }catch(e){
-    showNamesResult("El texto pegado no es un JSON válido. Revisá que copiaste toda la respuesta del Graph Explorer.","err");
-    return;
-  }
-  const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.value) ? parsed.value : null);
-  if(!arr){
-    showNamesResult("No se encontró una lista de dispositivos en el JSON pegado.","err");
-    return;
-  }
-  const map=new Map();
-  for(const item of arr){
-    if(!item || typeof item!=="object") continue;
-    const serial=String(item.serialNumber==null?"":item.serialNumber).trim();
-    const name=String(item.deviceName==null?"":item.deviceName).trim();
-    if(!serial || !name) continue;
-    const model=item.model==null?null:String(item.model).trim()||null;
-    map.set(serial,{device_serial:serial, device_name:name, model});
-  }
-  const rows=[...map.values()];
-  if(rows.length===0){
-    showNamesResult("No se encontraron dispositivos con serial y nombre válidos en el JSON.","err");
-    return;
-  }
-  if(!sb){
-    showNamesResult("No hay conexión con el servidor (Supabase).","err");
-    return;
-  }
-  btn.disabled=true; btn.textContent="Importando…";
-  try{
-    for(let i=0;i<rows.length;i+=200){
-      const chunk=rows.slice(i,i+200);
-      const {error}=await sb.from("devices").upsert(chunk,{onConflict:"device_serial"});
-      if(error) throw error;
-    }
-    showNamesResult("Importados "+rows.length+" nombres.","ok");
-    await loadDeviceNames();
-  }catch(e){
-    showNamesResult("No se pudo importar. "+(e.message||"Error desconocido."),"err");
-  }finally{
-    btn.disabled=false; btn.textContent="Importar";
-  }
-}
-document.getElementById("namesBtn").onclick=openNamesModal;
-document.getElementById("namesCloseBtn").onclick=closeNamesModal;
-document.getElementById("namesImportBtn").onclick=importDeviceNames;
 
 /* ============================================================
    Arranque: revisar sesión existente
