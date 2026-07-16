@@ -507,7 +507,16 @@ function arDateStamp(d){
   // del nombre del archivo coincida con "hoy" en Argentina, no en UTC/local del browser.
   return new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).format(d);
 }
-const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (min)","Intervalo Intune (min)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
+/* Intervalo: apps ≥ v40 reportan segundos exactos (report_interval_s);
+   filas viejas solo minutos → se convierten ×60 para comparar en una
+   sola unidad durante la convivencia v39/v40. */
+function intervalSecsOf(r){
+  const eff=!isNil(r.report_interval_s)?r.report_interval_s:(!isNil(r.report_interval_min)?r.report_interval_min*60:null);
+  const intune=!isNil(r.intune_interval_s)?r.intune_interval_s:(!isNil(r.intune_interval_min)?r.intune_interval_min*60:null);
+  return {eff,intune};
+}
+function fmtIntervalS(s){ return s%60===0?(s/60)+" min":s+" s"; }
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (s)","Intervalo Intune (s)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon"];
 function fleetRowToCsvCols({r,s}){
   const dname=state.deviceNames.get(r.device_serial);
   const trk=state.trackingMap.get(r.device_serial);
@@ -525,8 +534,8 @@ function fleetRowToCsvCols({r,s}){
     isNil(r.battery_pct)?"":r.battery_pct,
     boolSiNo(r.battery_charging),
     isNil(r.points_pending)?"":r.points_pending,
-    isNil(r.report_interval_min)?"":r.report_interval_min,
-    isNil(r.intune_interval_min)?"":r.intune_interval_min,
+    intervalSecsOf(r).eff??"",
+    intervalSecsOf(r).intune??"",
     boolSiNo(r.last_sync_ok),
     r.last_sync_error_detail||"",
     tv("cuadrilla"), tv("yacimiento"), tv("proveedor"), tv("numero"), tv("celular"), tv("usuario_smoc"),
@@ -749,7 +758,7 @@ function renderFleet(){
         <td>${s.recv?relTime(s.recv):'<span class="faint">sin dato</span>'}</td>
         <td><span class="batt">${batteryIcon(r.battery_pct,r.battery_charging)} ${r.battery_pct==null?'<span class="faint">—</span>':r.battery_pct+"%"}</span></td>
         <td class="${pcls}">${r.points_pending==null?'<span class="faint">—</span>':r.points_pending}</td>
-        <td>${r.report_interval_min==null?'<span class="faint">—</span>':esc(String(r.report_interval_min))+" min"+(r.intune_interval_min!=null&&r.intune_interval_min!==r.report_interval_min?' <span class="edited" title="Editado a mano (Intune: '+esc(String(r.intune_interval_min))+' min)">✎</span>':'')}</td>
+        <td>${(()=>{const iv=intervalSecsOf(r);return iv.eff==null?'<span class="faint">—</span>':esc(fmtIntervalS(iv.eff))+(iv.intune!=null&&iv.intune!==iv.eff?' <span class="edited" title="Editado a mano (Intune: '+esc(fmtIntervalS(iv.intune))+')">✎</span>':'');})()}</td>
         <td class="col-hide-sm">${r.app_version_name?'<span class="mono" style="font-size:12px">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
       const trackHtml = trk
