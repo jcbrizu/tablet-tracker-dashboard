@@ -484,8 +484,8 @@ function evalStatus(r){
 }
 const LEVEL_RANK={critical:0,warning:1,ok:2};
 const LEVEL_META={
-  critical:{cls:"crit",word:"Crítica",ic:"✕"},
-  warning:{cls:"warn",word:"Atención",ic:"!"},
+  critical:{cls:"crit",word:"Atención",ic:"✕"},
+  warning:{cls:"warn",word:"Observación",ic:"!"},
   ok:{cls:"ok",word:"OK",ic:"✓"},
 };
 
@@ -671,8 +671,8 @@ function renderFleet(){
   const cardsHtml=`
     <div class="cards">
       <div class="card c-total clickable ${state.filter==="all"?"active":""}" data-filter="all"><span class="rail"></span><span class="num">${counts.total}</span><span class="lbl">Tablets reportando</span></div>
-      <div class="card c-crit clickable ${state.filter==="critical"?"active":""}" data-filter="critical"><span class="rail"></span><span class="num">${counts.critical}</span><span class="lbl">Críticas</span></div>
-      <div class="card c-warn clickable ${state.filter==="warning"?"active":""}" data-filter="warning"><span class="rail"></span><span class="num">${counts.warning}</span><span class="lbl">En atención</span></div>
+      <div class="card c-crit clickable ${state.filter==="critical"?"active":""}" data-filter="critical"><span class="rail"></span><span class="num">${counts.critical}</span><span class="lbl">Atención</span></div>
+      <div class="card c-warn clickable ${state.filter==="warning"?"active":""}" data-filter="warning"><span class="rail"></span><span class="num">${counts.warning}</span><span class="lbl">En observación</span></div>
       <div class="card c-ok clickable ${state.filter==="ok"?"active":""}" data-filter="ok"><span class="rail"></span><span class="num">${counts.ok}</span><span class="lbl">OK</span></div>
       <div class="card c-stale clickable ${state.filter==="stale"?"active":""}" data-filter="stale"><span class="rail"></span><span class="num">${counts.stale}</span><span class="lbl">Sin reportar +1 h</span></div>
     </div>`;
@@ -685,8 +685,8 @@ function renderFleet(){
       </div>
       <div class="segmented" id="filterSeg">
         <button data-filter="all" class="${state.filter==="all"?"on":""}">Todas</button>
-        <button data-filter="critical" class="${state.filter==="critical"?"on":""}"><span class="dot dot-crit"></span>Críticas</button>
-        <button data-filter="warning" class="${state.filter==="warning"?"on":""}"><span class="dot dot-warn"></span>Atención</button>
+        <button data-filter="critical" class="${state.filter==="critical"?"on":""}"><span class="dot dot-crit"></span>Atención</button>
+        <button data-filter="warning" class="${state.filter==="warning"?"on":""}"><span class="dot dot-warn"></span>Observación</button>
         <button data-filter="ok" class="${state.filter==="ok"?"on":""}"><span class="dot dot-ok"></span>OK</button>
       </div>
       <div class="ugfilter">
