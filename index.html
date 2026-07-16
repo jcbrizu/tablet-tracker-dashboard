@@ -956,7 +956,6 @@ function renderDetail(){
     ${kv("Error de envío", {t:isNil(r.last_sync_error)?"—":({partial_failure:"Falla parcial",auth_failure:"Falla de autenticación"}[r.last_sync_error]||r.last_sync_error),n:isNil(r.last_sync_error)}, r.last_sync_error?"warn":"")}
     ${isNil(r.last_sync_error_detail)?"":`<div class="kv warn"><span class="k">Detalle del error</span><span class="v detail">${esc(r.last_sync_error_detail)}</span></div>`}
     ${kv("Último envío", {t:fmtEpoch(r.last_sync_at),n:isNil(r.last_sync_at)})}
-    ${kv("Estado en 2.º plano", {t:isNil(r.standby_bucket)?"—":({active:"Activa",working_set:"En uso",frequent:"Frecuente",rare:"Rara",restricted:"Restringida"}[r.standby_bucket]||r.standby_bucket),n:isNil(r.standby_bucket)}, (r.standby_bucket==="rare"||r.standby_bucket==="restricted")?"warn":"")}
     ${kv("Exenta de ahorro batería", boolTxt(r.battery_optimization_exempt), r.battery_optimization_exempt===false?"warn":"")}
     ${kv("Modo ahorro de energía", boolTxt(r.power_save_mode), r.power_save_mode===true?"warn":"")}
     ${kv("Config. corporativa OK", boolTxt(r.managed_config_ok), r.managed_config_ok===false?"crit":"")}
