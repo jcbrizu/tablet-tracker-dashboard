@@ -229,6 +229,22 @@
   .legend{display:flex;flex-wrap:wrap;gap:12px;padding:4px 12px 2px;font-size:11.5px;color:var(--dim)}
   .legend span{display:inline-flex;align-items:center;gap:5px}
   .legend .sw{width:11px;height:11px;border-radius:2px}
+  .phctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .zoomlbl{font-size:11.5px;color:var(--dim)}
+  #resetZoom{height:28px;padding:0 12px;border:1px solid var(--accent);border-radius:7px;background:var(--accent-weak);color:var(--accent-text);font-size:12.5px;font-weight:600}
+  .chart svg{touch-action:pan-y;cursor:crosshair;user-select:none;-webkit-user-select:none}
+  #histTip{
+    position:fixed;z-index:50;pointer-events:none;display:none;
+    background:var(--panel);border:1px solid var(--border-strong);border-radius:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,.18);padding:8px 11px;font-size:12.5px;
+    min-width:185px;max-width:250px;
+  }
+  #histTip .tdate{font-weight:700;margin-bottom:5px}
+  #histTip .trow{display:flex;justify-content:space-between;gap:14px;margin:2px 0}
+  #histTip .trow .k{color:var(--dim)}
+  #histTip .trow .v{font-family:var(--mono);font-size:12px;text-align:right}
+  #histTip .tgap{color:var(--dim)}
+  #histTip .tgap b{color:var(--text)}
 
   details.raw{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
   details.raw>summary{list-style:none;cursor:pointer;padding:11px 14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
@@ -317,6 +333,7 @@
   <div id="demoBanner" class="demo-banner hidden">⚠ DATOS DE EJEMPLO — esto NO es el estado real de la flota</div>
   <div id="content"></div>
 </div>
+<div id="histTip"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.3/dist/umd/supabase.js" integrity="sha384-sihuiVHG7vyEIuePVbLI4QpHu1dbhCZe4Zqp0FuqnFeEnyIhF3koyXoBZyfbFsYs" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
@@ -352,6 +369,7 @@ const state = {
   sort:{key:"status", dir:"asc"},
   device:null,
   range:"24h",         // 24h | 7d | 30d
+  zoom:null,           // {t0,t1}|null — zoom visual del historial (no toca la query)
   history:null,
   histLoading:false,
   deviceNames:new Map(), // device_serial -> device_name
@@ -376,6 +394,7 @@ const TZ="America/Argentina/Buenos_Aires";
 const dtFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
 const dtFmtSec=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
 const timeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,hour:"2-digit",minute:"2-digit",hour12:false});
+const dayTimeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
 
 function isNil(v){ return v===null||v===undefined||v===""; }
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -890,7 +909,7 @@ function initFleetMap(points){
 
 /* ---------------- DETALLE ---------------- */
 async function openDetail(serial){
-  state.view="detail"; state.device=serial; state.history=null; state.histLoading=true;
+  state.view="detail"; state.device=serial; state.history=null; state.histLoading=true; state.zoom=null;
   state.tracking=null; state.trackingHistory=null; segDraft={};
   render();
   await Promise.all([loadHistory(), loadTracking()]);
@@ -972,11 +991,14 @@ function renderDetail(){
     ${kv("Reloj de la tablet", {t:fmtEpoch(r.reported_at),n:isNil(r.reported_at)})}
   </div>`;
 
-  const rangeSeg=`<div class="segmented" id="rangeSeg">
+  const rangeSeg=`<div class="phctl">
+    <span class="zoomlbl" id="zoomLbl"></span>
+    <button id="resetZoom" class="hidden">↺ Ver todo</button>
+    <div class="segmented" id="rangeSeg">
     <button data-r="24h" class="${state.range==="24h"?"on":""}">24 h</button>
     <button data-r="7d" class="${state.range==="7d"?"on":""}">7 días</button>
     <button data-r="30d" class="${state.range==="30d"?"on":""}">30 días</button>
-  </div>`;
+  </div></div>`;
 
   content().innerHTML=`<div class="wrap">
     <div class="detail-head">
@@ -1002,7 +1024,13 @@ function renderDetail(){
   </div>`;
 
   document.getElementById("backBtn").onclick=goFleet;
-  content().querySelectorAll("#rangeSeg button").forEach(b=>b.onclick=async()=>{ state.range=b.dataset.r; state.history=null; state.histLoading=true; renderDetail(); await loadHistory(); });
+  // cambio de rango: NO re-renderizar todo el detail (colapsa la altura de la
+  // pagina y el browser arrastra el scroll hacia arriba) — solo el historial
+  content().querySelectorAll("#rangeSeg button").forEach(b=>b.onclick=async()=>{
+    state.range=b.dataset.r; state.zoom=null; state.history=null; state.histLoading=true;
+    content().querySelectorAll("#rangeSeg button").forEach(x=>x.classList.toggle("on",x===b));
+    renderHistory(); await loadHistory();
+  });
 
   renderHistory();
   renderSeguimiento();
@@ -1171,14 +1199,23 @@ function renderHistory(){
   const area=document.getElementById("histArea");
   const rawArea=document.getElementById("rawArea");
   if(!area) return;
-  if(state.histLoading){ area.innerHTML=`<div class="loading"><div class="spin"></div>Cargando historial…</div>`; if(rawArea)rawArea.innerHTML=""; return; }
+  if(state.histLoading){
+    // conservar la altura mientras carga para que la pagina no se encoja (scroll estable)
+    if(area.offsetHeight>0) area.style.minHeight=area.offsetHeight+"px";
+    area.innerHTML=`<div class="loading"><div class="spin"></div>Cargando historial…</div>`; if(rawArea)rawArea.innerHTML=""; histCharts=[]; histPts=[]; histGaps=[]; updateZoomCtl(); return;
+  }
+  area.style.minHeight="";
   const h=state.history||[];
   if(h.length===0){
     area.innerHTML=`<div class="empty"><div class="big">Todavía no hay latidos de esta tablet</div>No hay historial en el rango seleccionado.</div>`;
-    if(rawArea)rawArea.innerHTML=""; return;
+    if(rawArea)rawArea.innerHTML=""; histCharts=[]; histPts=[]; histGaps=[]; updateZoomCtl(); return;
   }
-  const now=Date.now(), x1=now, x0=now-rangeMs();
-  const pts=h.map(d=>({t:toDate(d.received_at)?.getTime(), r:d})).filter(p=>p.t&&p.t>=x0-6e4).sort((a,b)=>a.t-b.t);
+  const now=Date.now(), full1=now, full0=now-rangeMs();
+  const x1=state.zoom?state.zoom.t1:full1, x0=state.zoom?state.zoom.t0:full0;
+  const pts=h.map(d=>({t:toDate(d.received_at)?.getTime(), r:d})).filter(p=>p.t&&p.t>=x0-6e4&&p.t<=x1+6e4).sort((a,b)=>a.t-b.t);
+
+  histCharts=[]; histPts=pts; histX0=x0; histX1=x1;
+  histGaps=findGaps(pts.map(p=>p.t),x0,x1);
 
   area.innerHTML=
     chartBlock("Batería","%, con tramos de carga marcados",
@@ -1205,16 +1242,31 @@ function renderHistory(){
       <thead><tr><th>Hora (servidor)</th><th>Batería</th><th>Red</th><th>Pend.</th><th>Envío</th><th>WiFi</th></tr></thead>
       <tbody>${rtrs}</tbody>
     </table></div></details>`;
+  updateZoomCtl();
+}
+
+function updateZoomCtl(){
+  const rz=document.getElementById("resetZoom"), zl=document.getElementById("zoomLbl");
+  if(!rz) return;
+  rz.classList.toggle("hidden",!state.zoom);
+  rz.onclick=()=>{ state.zoom=null; renderHistory(); };
+  if(zl) zl.textContent=state.zoom?("Zoom: "+dayTimeFmt.format(new Date(state.zoom.t0))+" → "+dayTimeFmt.format(new Date(state.zoom.t1))):"";
 }
 
 function chartBlock(title,sub,svg){
   return `<div class="chart"><div class="clabel"><span class="t">${esc(title)}</span><span class="s">${esc(sub)}</span></div>${svg}</div>`;
 }
 
+const CH_W=1000, CH_PADL=42, CH_PADR=14, CH_PLOTW=CH_W-CH_PADL-CH_PADR;
+
+/* ---- interacción del historial (crosshair + tooltip + zoom) ---- */
+let histCharts=[], histPts=[], histX0=0, histX1=0, histGaps=[];
+let histHover=false, histDrag=null;
+
 /* --- gráfico de líneas SVG, corta en huecos, marca huecos y carga --- */
 function lineChart(pts,opt){
-  const W=1000,H=170,padL=42,padR=14,padT=14,padB=22;
-  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const W=CH_W,H=170,padL=CH_PADL,padR=CH_PADR,padT=14,padB=22;
+  const plotW=CH_PLOTW, plotH=H-padT-padB;
   const {x0,x1}=opt;
   const valPts=pts.filter(p=>opt.get(p.r)!=null).map(p=>({t:p.t,v:Number(opt.get(p.r)),r:p.r}));
   let yMax=opt.yMax, yMin=opt.yMin;
@@ -1236,7 +1288,8 @@ function lineChart(pts,opt){
   }
   // ticks tiempo
   const tticks=timeTicks(x0,x1);
-  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t))}</text>`).join("");
+  const span=x1-x0;
+  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t,span))}</text>`).join("");
 
   // path cortando en huecos
   let dLine="",dFill="";
@@ -1263,18 +1316,26 @@ function lineChart(pts,opt){
 
   const chargeLegend = opt.chargeGet?`<div class="legend"><span><span class="sw" style="background:var(--accent);border-radius:50%"></span>Cargando</span><span><span class="sw" style="background:var(--gap)"></span>Sin señal</span></div>`:`<div class="legend"><span><span class="sw" style="background:var(--gap)"></span>Sin señal</span></div>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">
+  histCharts.push({padT, plotH, yMin, yMax, get:opt.get, hasDot:true});
+  const inter=`
+    <rect class="selrect" y="${padT}" height="${plotH}" x="0" width="0" fill="var(--accent)" opacity="0.14" visibility="hidden"/>
+    <g class="xh" visibility="hidden">
+      <line class="xline" x1="0" x2="0" y1="${padT}" y2="${padT+plotH}" stroke="var(--dim)" stroke-width="1" opacity="0.7" vector-effect="non-scaling-stroke"/>
+      <circle class="xdot" r="3.4" fill="${opt.color}" stroke="var(--panel)" stroke-width="1.5"/>
+    </g>`;
+
+  return `<svg class="hsvg" data-ci="${histCharts.length-1}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">
     ${gapRects}${grid}
     ${opt.fill?`<path d="${dFill}" fill="${opt.color}" opacity="0.12"/>`:""}
     <path d="${dLine}" fill="none" stroke="${opt.color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots}${chargeDots}${labels}${tlabels}
+    ${dots}${chargeDots}${labels}${tlabels}${inter}
   </svg>${chargeLegend}`;
 }
 
 /* --- banda de conectividad --- */
 function connectivityBlock(pts,x0,x1){
-  const W=1000,H=54,padL=42,padR=14,padT=10;
-  const plotW=W-padL-padR, bandH=22;
+  const W=CH_W,H=54,padL=CH_PADL,padR=CH_PADR,padT=10;
+  const plotW=CH_PLOTW, bandH=22;
   const X=t=>padL+((t-x0)/(x1-x0))*plotW;
   let rects="";
   if(pts.length===0){
@@ -1301,7 +1362,8 @@ function connectivityBlock(pts,x0,x1){
     if((x1-lastEnd)/60000>GAP_MIN) rects+=`<rect x="${X(lastEnd).toFixed(1)}" y="${padT}" width="${(X(x1)-X(lastEnd)).toFixed(1)}" height="${bandH}" fill="var(--gap)" opacity="0.55"/>`;
   }
   const tticks=timeTicks(x0,x1);
-  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t))}</text>`).join("");
+  const span=x1-x0;
+  const tlabels=tticks.map(t=>`<text x="${X(t).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="10" fill="var(--dim)">${esc(tickLabel(t,span))}</text>`).join("");
   function seg(xa,xb,col){ if(xb<=xa) return ""; return `<rect x="${xa.toFixed(1)}" y="${padT}" width="${(xb-xa).toFixed(1)}" height="${bandH}" fill="${col}"/>`; }
   function segColor(r){
     if(isNil(r.net_transport)||r.net_transport==="none"||r.airplane_mode===true) return "var(--nonet)";
@@ -1317,7 +1379,14 @@ function connectivityBlock(pts,x0,x1){
     <span><span class="sw" style="background:var(--nonet)"></span>Sin red</span>
     <span><span class="sw" style="background:var(--gap)"></span>Sin señal</span>
   </div>`;
-  const svg=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${rects}${tlabels}</svg>`;
+  histCharts.push({padT, plotH:bandH, hasDot:false});
+  const inter=`
+    <rect class="selrect" y="${padT}" height="${bandH}" x="0" width="0" fill="var(--accent)" opacity="0.2" visibility="hidden"/>
+    <g class="xh" visibility="hidden">
+      <line class="xline" x1="0" x2="0" y1="${padT}" y2="${padT+bandH}" stroke="var(--dim)" stroke-width="1" opacity="0.8" vector-effect="non-scaling-stroke"/>
+    </g>`;
+
+  const svg=`<svg class="hsvg" data-ci="${histCharts.length-1}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">${rects}${tlabels}${inter}</svg>`;
   return `<div class="chart"><div class="clabel"><span class="t">Conectividad</span><span class="s">tipo de red a lo largo del tiempo</span></div>${svg}${legend}</div>`;
 }
 
@@ -1336,11 +1405,10 @@ function timeTicks(x0,x1){
   for(let i=0;i<=n;i++) ticks.push(x0+span*i/n);
   return ticks;
 }
-function tickLabel(t){
-  const span=rangeMs();
+function tickLabel(t,span){
   const d=new Date(t);
   if(span<=864e5) return timeFmt.format(d); // hh:mm
-  // día/mes
+  if(span<=3*864e5) return dayTimeFmt.format(d); // dd/MM hh:mm (rangos de zoom intermedios)
   return new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit"}).format(d);
 }
 
@@ -1522,6 +1590,132 @@ document.getElementById("logoutBtn").onclick=async()=>{
 document.getElementById("manualRefresh").onclick=()=>{ loadFleet(); };
 document.getElementById("themeBtn").onclick=toggleTheme;
 
+/* ---- historial: hover (crosshair + tooltip) ---- */
+const tipFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,weekday:"short",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
+
+function histSvgs(){ return document.querySelectorAll("#histArea svg.hsvg"); }
+function histPxToT(svg,clientX){
+  const rect=svg.getBoundingClientRect();
+  const vx=(clientX-rect.left)/rect.width*CH_W;
+  const t=histX0+((vx-CH_PADL)/CH_PLOTW)*(histX1-histX0);
+  return Math.max(histX0,Math.min(histX1,t));
+}
+function histTToVx(t){ return CH_PADL+((t-histX0)/(histX1-histX0))*CH_PLOTW; }
+function histNearest(t){
+  if(!histPts.length) return null;
+  let lo=0,hi=histPts.length-1;
+  while(hi-lo>1){ const m=(lo+hi)>>1; if(histPts[m].t<t)lo=m; else hi=m; }
+  return (Math.abs(histPts[lo].t-t)<=Math.abs(histPts[hi].t-t))?histPts[lo]:histPts[hi];
+}
+function histGapAt(t){ return histGaps.find(g=>t>g[0]&&t<g[1])||null; }
+
+function histShowCross(t,point){
+  const vx=histTToVx(point?point.t:t);
+  histSvgs().forEach(svg=>{
+    const meta=histCharts[+svg.dataset.ci]; if(!meta) return;
+    const xh=svg.querySelector(".xh"); if(!xh) return;
+    xh.setAttribute("visibility","visible");
+    const line=svg.querySelector(".xline");
+    line.setAttribute("x1",vx); line.setAttribute("x2",vx);
+    if(meta.hasDot){
+      const dot=svg.querySelector(".xdot");
+      const v=point?meta.get(point.r):null;
+      if(point&&v!=null){
+        const y=meta.padT+(1-((Number(v)-meta.yMin)/(meta.yMax-meta.yMin||1)))*meta.plotH;
+        dot.setAttribute("cx",vx); dot.setAttribute("cy",y); dot.setAttribute("visibility","visible");
+      }else dot.setAttribute("visibility","hidden");
+    }
+  });
+  histHover=true;
+}
+function histHideCross(){
+  if(!histHover) return;
+  histSvgs().forEach(svg=>{ const xh=svg.querySelector(".xh"); if(xh) xh.setAttribute("visibility","hidden"); });
+  document.getElementById("histTip").style.display="none";
+  histHover=false;
+}
+
+function histShowTip(ev,t){
+  const tip=document.getElementById("histTip");
+  const g=histGapAt(t);
+  if(g){
+    tip.innerHTML=`<div class="tdate">Sin latidos en este período</div>
+      <div class="tgap">de <b>${esc(dayTimeFmt.format(new Date(g[0])))}</b><br>a <b>${esc(dayTimeFmt.format(new Date(g[1])))}</b></div>`;
+    histShowCross(t,null);
+  }else{
+    const p=histNearest(t);
+    if(!p){ histHideCross(); return; }
+    const r=p.r;
+    const batt=isNil(r.battery_pct)?"—":r.battery_pct+"%"+(r.battery_charging?" ⚡":"");
+    const pend=isNil(r.points_pending)?"—":r.points_pending;
+    const sync=isNil(r.last_sync_ok)?'<span class="v">—</span>':(r.last_sync_ok?'<span class="v" style="color:var(--ok-text)">OK</span>':'<span class="v" style="color:var(--crit-text)">falló</span>');
+    tip.innerHTML=`<div class="tdate">${esc(tipFmt.format(new Date(p.t)))}</div>
+      <div class="trow"><span class="k">Batería</span><span class="v">${esc(batt)}</span></div>
+      <div class="trow"><span class="k">Red</span><span class="v">${esc(netLabel(r))}</span></div>
+      <div class="trow"><span class="k">Pendientes</span><span class="v">${esc(String(pend))}</span></div>
+      <div class="trow"><span class="k">Envío</span>${sync}</div>`;
+    histShowCross(t,p);
+  }
+  tip.style.display="block";
+  const tw=tip.offsetWidth, m=14;
+  let left=ev.clientX+m;
+  if(left+tw>window.innerWidth-8) left=ev.clientX-m-tw;
+  tip.style.left=left+"px";
+  tip.style.top=Math.max(8,Math.min(window.innerHeight-tip.offsetHeight-8,ev.clientY-20))+"px";
+}
+
+function histShowSel(tA,tB){
+  const xa=histTToVx(Math.min(tA,tB)), xb=histTToVx(Math.max(tA,tB));
+  histSvgs().forEach(svg=>{
+    const sr=svg.querySelector(".selrect"); if(!sr) return;
+    sr.setAttribute("x",xa); sr.setAttribute("width",Math.max(0,xb-xa));
+    sr.setAttribute("visibility","visible");
+  });
+}
+function histHideSel(){
+  histSvgs().forEach(svg=>{ const sr=svg.querySelector(".selrect"); if(sr) sr.setAttribute("visibility","hidden"); });
+}
+
+document.addEventListener("pointerdown",ev=>{
+  if(ev.button!==0) return; // solo botón principal: click derecho/medio no arrastran
+  if(!(ev.target instanceof Element)) return;
+  const svg=ev.target.closest("#histArea svg.hsvg"); if(!svg) return;
+  histDrag={px:ev.clientX, tA:histPxToT(svg,ev.clientX), moved:false};
+});
+document.addEventListener("pointerup",ev=>{
+  if(!histDrag) return;
+  const anySvg=document.querySelector("#histArea svg.hsvg");
+  const tB=anySvg?histPxToT(anySvg,ev.clientX):histDrag.tA;
+  const moved=histDrag.moved, tA=histDrag.tA;
+  histDrag=null; histHideSel();
+  if(moved){
+    const t0=Math.min(tA,tB), t1=Math.max(tA,tB);
+    if(t1-t0>=10*60000){ state.zoom={t0,t1}; renderHistory(); } // zoom mínimo 10 min
+  }else if(anySvg){
+    histShowTip(ev,tB); // clic/tap simple: posiciona crosshair + tooltip (único camino en touch)
+  }
+});
+// si el gesto se interrumpe (soltar fuera de la ventana, alt-tab, touch cancelado), limpiar
+function histCancelDrag(){ if(histDrag){ histDrag=null; histHideSel(); } }
+document.addEventListener("pointercancel",histCancelDrag);
+window.addEventListener("blur",histCancelDrag);
+
+document.addEventListener("pointermove",ev=>{
+  const svg=(ev.target instanceof Element)?ev.target.closest("#histArea svg.hsvg"):null;
+  if(histDrag){
+    const anySvg=svg||document.querySelector("#histArea svg.hsvg");
+    if(!anySvg){ histDrag=null; return; }
+    const tB=histPxToT(anySvg,ev.clientX);
+    if(Math.abs(ev.clientX-histDrag.px)>5){ // <5px = clic, no zoom
+      histDrag.moved=true;
+      histHideCross();
+      histShowSel(histDrag.tA,tB);
+    }
+    return;
+  }
+  if(!svg){ histHideCross(); return; }
+  histShowTip(ev,histPxToT(svg,ev.clientX));
+});
 
 /* ============================================================
    Arranque: revisar sesión existente
