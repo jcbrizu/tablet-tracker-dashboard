@@ -691,6 +691,7 @@ function renderFleet(){
     if(k==="signal"){av=a.s.ageMin==null?1e12:a.s.ageMin;bv=b.s.ageMin==null?1e12:b.s.ageMin;return (av-bv)*dir;}
     if(k==="battery"){av=a.r.battery_pct==null?-1:a.r.battery_pct;bv=b.r.battery_pct==null?-1:b.r.battery_pct;return (av-bv)*dir;}
     if(k==="pending"){av=a.r.points_pending==null?-1:a.r.points_pending;bv=b.r.points_pending==null?-1:b.r.points_pending;return (av-bv)*dir;}
+    if(k==="version"){av=a.r.app_version_code==null?-1:a.r.app_version_code;bv=b.r.app_version_code==null?-1:b.r.app_version_code;return (av-bv)*dir;}
     return 0;
   });
 
@@ -800,7 +801,7 @@ function renderFleet(){
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
         <th class="sortable" data-sort="pending">Pend. ${arrow("pending")}</th>
         <th>Intervalo</th>
-        <th class="col-hide-sm">Versión</th>
+        <th class="sortable col-hide-sm" data-sort="version">Versión ${arrow("version")}</th>
       </tr></thead>
       <tbody>${trs}</tbody>
     </table></div>`;
