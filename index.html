@@ -978,6 +978,7 @@ function renderDetail(){
   const gApp=`<div class="group"><h3>App y envío al GIS</h3>
     ${kv("Versión app", {t:isNil(r.app_version_name)?"—":r.app_version_name+(r.app_version_code?" ("+r.app_version_code+")":""),n:isNil(r.app_version_name)})}
     ${kv("Puntos pendientes", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"")}
+    ${kv("Pendientes (2.º destino)", num(r.points_pending_2))}
     ${kv("Punto más viejo sin enviar", {t:fmtDur(r.oldest_pending_age_s),n:isNil(r.oldest_pending_age_s)})}
     ${kv("Enviados (48 h)", num(r.points_sent_48h))}
     ${kv("Último envío OK", boolTxt(r.last_sync_ok), r.last_sync_ok===false?"crit":"")}
