@@ -147,6 +147,15 @@
      las esquinas igual pero deja al sticky referenciar el viewport. */
   .tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:0 0 11px 11px;overflow:clip;box-shadow:var(--shadow)}
   #fleetMap{width:100%;height:65vh}
+  /* Tooltip enriquecido del mapa. Colores fijos (Leaflet lo pinta blanco en
+     ambos temas), para legibilidad en claro y oscuro. */
+  .leaflet-tooltip.fleet-tip{white-space:normal;min-width:190px;padding:8px 11px}
+  .fleet-tip .mtip-name{font-weight:700;color:#14181c}
+  .fleet-tip .mtip-status{margin-top:1px;color:#3a4149}
+  .fleet-tip .mtip-sep{height:1px;background:#e2e6ea;margin:7px 0}
+  .fleet-tip .mtip-row{display:flex;justify-content:space-between;gap:18px;font-size:12px;line-height:1.6}
+  .fleet-tip .mtip-row span{color:#6b7680}
+  .fleet-tip .mtip-row b{font-weight:600;font-family:var(--mono);color:#14181c}
   .offmap-caption{font-size:12px;color:var(--faint);margin:10px 2px 0}
   .fleet-caption{font-size:12px;color:var(--faint);margin:10px 2px 0;padding-left:2px}
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -1175,9 +1184,25 @@ function initFleetMap(points){
     const marker=L.circleMarker([dLat,dLon],{
       radius:9, color:"#fff", weight:1.5, fillOpacity:.9, fillColor:statusColor(s.level)
     });
+    // Tooltip enriquecido: nombre + estado (lo que ya había) + red WiFi, señal
+    // y última señal, para leer el mapa sin abrir el detalle.
+    const ssidTxt = (!isNil(r.wifi_ssid) && String(r.wifi_ssid).trim()!=="") ? esc(r.wifi_ssid) : "—";
+    let sigTxt;
+    if(r.net_transport==="wifi") sigTxt = r.wifi_rssi_dbm!=null ? `WiFi · ${r.wifi_rssi_dbm} dBm` : "WiFi";
+    else if(r.net_transport==="cellular") sigTxt = r.cell_level!=null ? `Celular · ${r.cell_level}/4` : "Celular";
+    else if(r.net_transport==="ethernet") sigTxt = "Cable";
+    else sigTxt = "Sin red";
+    const relSig = s.recv ? esc(relTime(s.recv)) : "sin dato";
     marker.bindTooltip(
-      `<strong>${nameHtml}</strong><br>${esc(m.word)}: ${esc(s.main)}`,
-      {direction:"top", offset:[0,-10]}
+      `<div class="mtip">
+         <div class="mtip-name">${nameHtml}</div>
+         <div class="mtip-status">${esc(m.word)}: ${esc(s.main)}</div>
+         <div class="mtip-sep"></div>
+         <div class="mtip-row"><span>Red WiFi</span><b>${ssidTxt}</b></div>
+         <div class="mtip-row"><span>Señal</span><b>${esc(sigTxt)}</b></div>
+         <div class="mtip-row"><span>Última señal</span><b>${relSig}</b></div>
+       </div>`,
+      {direction:"top", offset:[0,-10], className:"fleet-tip"}
     );
     marker.on("click",()=>openDetail(r.device_serial));
     marker.addTo(group);
