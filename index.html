@@ -277,6 +277,7 @@
   .mapcard .mapbody{padding:12px 13px}
   .mapcard .mapcaption{font-size:11.5px;color:var(--dim);margin:0 0 8px}
   .mapcard iframe{display:block;width:100%;height:260px;border:1px solid var(--border);border-radius:6px}
+  .mapcard #zoneMap{height:260px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
   .mapcard .maplink{display:inline-block;margin-top:8px;font-size:12.5px}
 
   /* ---------- Seguimiento (panel editable + historial) ---------- */
@@ -512,6 +513,8 @@ let refreshTimer=null, clockTimer=null;
 let fleetMapInstance=null;
 let fleetTileLayer=null;
 let fleetMapView=null; // vista (centro+zoom) recordada, para no re-encuadrar en cada refresco
+let zoneMapInstance=null; // mapa "zona aproximada" del detalle del equipo
+let zoneTileLayer=null;
 
 /* ============================================================
    Utilidades de formato (AR / español / NULL)
@@ -896,6 +899,7 @@ function renderFleet(){
   // de un render anterior ya no existe una vez que innerHTML se reasigna más abajo,
   // así que si no liberamos la instancia acá quedaría una referencia colgante.
   if(fleetMapInstance){ fleetMapInstance.remove(); fleetMapInstance=null; fleetTileLayer=null; }
+  if(zoneMapInstance){ zoneMapInstance.remove(); zoneMapInstance=null; zoneTileLayer=null; }
 
   const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
 
@@ -1251,6 +1255,24 @@ function initFleetMap(points){
   fleetMapInstance=map;
 }
 
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+// Mapa "zona aproximada" del detalle: mismo estilo temático (CARTO) que el
+// general. Un círculo de ~1 km comunica que la posición es aproximada (el punto
+// viaja redondeado a ~1 km; la exacta solo va al GIS).
+function initZoneMap(lat, lon){
+  const el=document.getElementById("zoneMap");
+  if(!el || typeof L==="undefined") return;
+  const map=L.map("zoneMap");
+  zoneTileLayer=makeFleetTileLayer();
+  zoneTileLayer.addTo(map);
+  const accent=cssVar("--accent")||"#9e1e62";
+  const circle=L.circle([lat,lon],{radius:1000, color:accent, weight:1.5, fillColor:accent, fillOpacity:.15}).addTo(map);
+  L.circleMarker([lat,lon],{radius:5, color:"#fff", weight:1.5, fillColor:accent, fillOpacity:1}).addTo(map);
+  map.fitBounds(circle.getBounds().pad(0.4));
+  zoneMapInstance=map;
+}
+
 /* ---------------- DETALLE ---------------- */
 async function openDetail(serial){
   state.view="detail"; state.device=serial; state.history=null; state.histLoading=true; state.zoom=null;
@@ -1260,6 +1282,7 @@ async function openDetail(serial){
 }
 
 function renderDetail(){
+  if(zoneMapInstance){ zoneMapInstance.remove(); zoneMapInstance=null; zoneTileLayer=null; }
   // El detalle es de un solo equipo: sacar el contador de flota del título.
   const bc=document.getElementById("brandCount"); if(bc) bc.textContent="";
   const r = state.fleet.find(x=>x.device_serial===state.device);
@@ -1309,16 +1332,12 @@ function renderDetail(){
   </div>`;
   let gMap="";
   if(hasZone){
-    const bboxParts=[zoneLon-0.05, zoneLat-0.03, zoneLon+0.05, zoneLat+0.03].map(n=>encodeURIComponent(n));
-    const bbox=bboxParts.join("%2C");
-    const marker=encodeURIComponent(zoneLat)+"%2C"+encodeURIComponent(zoneLon);
-    const osmSrc=`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${marker}`;
     const gmapsUrl=`https://maps.google.com/?q=${encodeURIComponent(zoneLat)},${encodeURIComponent(zoneLon)}`;
     gMap=`<div class="mapcard">
       <h3>Zona aproximada</h3>
       <div class="mapbody">
         <p class="mapcaption">precisión ~1 km — la posición exacta solo va al GIS</p>
-        <iframe src="${esc(osmSrc)}" loading="lazy" title="Zona aproximada de la tablet"></iframe>
+        <div id="zoneMap"></div>
         <a class="maplink" href="${esc(gmapsUrl)}" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>
       </div>
     </div>`;
@@ -1394,6 +1413,7 @@ function renderDetail(){
   </div>`;
 
   document.getElementById("backBtn").onclick=goFleet;
+  if(hasZone) initZoneMap(zoneLat, zoneLon);
   // cambio de rango: NO re-renderizar todo el detail (colapsa la altura de la
   // pagina y el browser arrastra el scroll hacia arriba) — solo el historial
   content().querySelectorAll("#rangeSeg button").forEach(b=>b.onclick=async()=>{
@@ -1901,6 +1921,11 @@ function toggleTheme(){
     fleetMapInstance.removeLayer(fleetTileLayer);
     fleetTileLayer=makeFleetTileLayer();
     fleetTileLayer.addTo(fleetMapInstance);
+  }
+  if(zoneMapInstance && zoneTileLayer){
+    zoneMapInstance.removeLayer(zoneTileLayer);
+    zoneTileLayer=makeFleetTileLayer();
+    zoneTileLayer.addTo(zoneMapInstance);
   }
 }
 
