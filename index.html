@@ -70,6 +70,8 @@
   .brand .glyph{width:26px;height:26px;border-radius:7px;background:var(--accent);position:relative;flex:0 0 auto}
   .brand .glyph::after{content:"";position:absolute;top:50%;left:50%;width:11px;height:11px;transform:translate(-50%,-50%);border:2.5px solid #fff;border-radius:50%}
   .brand small{font-weight:400;color:var(--dim);letter-spacing:0}
+  .brand-count{font-weight:400;color:var(--dim);letter-spacing:0}
+  .brand-count:empty{display:none}
   .demo-banner{
     display:flex;align-items:center;justify-content:center;gap:8px;
     padding:7px 16px;background:var(--warn-bg);color:var(--warn-text);
@@ -420,7 +422,7 @@
 <!-- ============ APP ============ -->
 <div id="appView" class="hidden">
   <div class="topbar">
-    <div class="brand"><span class="glyph"></span> Monitoreo de flota</div>
+    <div class="brand"><span class="glyph"></span> Monitoreo de flota<span id="brandCount" class="brand-count"></span></div>
     <div class="spacer"></div>
     <div class="refresh-note" id="refreshNote"><span class="pulse" id="pulse"></span><span id="refreshTxt">—</span></div>
     <button class="iconbtn" id="manualRefresh" title="Actualizar ahora">↻ Actualizar</button>
@@ -838,6 +840,9 @@ function renderFleet(){
   }
   const counts={total:scoped.length,critical:0,warning:0,ok:0,stale:0};
   scoped.forEach(x=>{ counts[x.s.level]++; if(x.s.ageMin!=null && x.s.ageMin>60) counts.stale++; });
+  // Contador de flota en el título del topbar (sólo vista flota; se limpia en el detalle).
+  const brandCount=document.getElementById("brandCount");
+  if(brandCount) brandCount.textContent = counts.total>0 ? ` · ${counts.total} ${counts.total===1?"tablet":"tablets"}` : "";
 
   // filtro + búsqueda
   let list=scoped.slice();
@@ -1099,6 +1104,8 @@ async function openDetail(serial){
 }
 
 function renderDetail(){
+  // El detalle es de un solo equipo: sacar el contador de flota del título.
+  const bc=document.getElementById("brandCount"); if(bc) bc.textContent="";
   const r = state.fleet.find(x=>x.device_serial===state.device);
   if(!r){ content().innerHTML=`<div class="wrap"><a class="back" id="backBtn">← Volver a la flota</a><div class="empty" style="margin-top:20px">No se encontró la tablet.</div></div>`; document.getElementById("backBtn").onclick=goFleet; return; }
   const s=evalStatus(r); const m=LEVEL_META[s.level];
