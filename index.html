@@ -630,6 +630,7 @@ const FIELD_TIP = {
   device_clock:"Hora del reloj interno de la tablet en su último latido. Si difiere mucho del latido de servidor, el reloj puede estar desajustado.",
   net_validated:"La red no sólo está conectada: tiene salida real a internet (verificada). Una tablet puede estar en WiFi pero sin internet, y ahí los puntos se acumulan.",
   wifi_rssi:"Intensidad de la señal WiFi en dBm. Más cerca de 0 es mejor: ~−50 excelente, ~−70 aceptable, ~−85 o menos es débil.",
+  wifi_ssid:"Nombre de la red WiFi a la que está conectada la tablet. Sirve para ver si las tablets que no logran enviar comparten una misma red (posible bloqueo de esa red hacia el GIS). Vacío si está con datos móviles o sin WiFi.",
   cell_level:"Barras de señal de datos móviles, de 0 (sin señal) a 4 (máxima).",
   location_enabled:"El GPS del dispositivo está encendido a nivel sistema.",
   location_perm:"La app tiene concedido el permiso para usar la ubicación. Puede estar el GPS encendido pero la app sin permiso.",
@@ -876,6 +877,12 @@ function renderFleet(){
     if(k==="battery"){av=a.r.battery_pct==null?-1:a.r.battery_pct;bv=b.r.battery_pct==null?-1:b.r.battery_pct;return (av-bv)*dir;}
     if(k==="pending"){av=a.r.points_pending==null?-1:a.r.points_pending;bv=b.r.points_pending==null?-1:b.r.points_pending;return (av-bv)*dir;}
     if(k==="version"){av=a.r.app_version_code==null?-1:a.r.app_version_code;bv=b.r.app_version_code==null?-1:b.r.app_version_code;return (av-bv)*dir;}
+    if(k==="wifi"){
+      av=(a.r.wifi_ssid||"").toLowerCase(); bv=(b.r.wifi_ssid||"").toLowerCase();
+      if(av==="" && bv!=="") return 1;
+      if(bv==="" && av!=="") return -1;
+      return av.localeCompare(bv)*dir;
+    }
     return 0;
   });
 
@@ -973,9 +980,10 @@ function renderFleet(){
         <td><span class="batt">${batteryBar(r.battery_pct,r.battery_charging)}</span></td>
         <td class="pendcell" style="text-align:right"><span class="${pcls}">${r.points_pending==null?"—":r.points_pending}</span></td>
         <td class="vercell">${r.app_version_name?'<span class="mono" style="font-size:12px;color:var(--faint)">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
+        <td class="wificell">${r.wifi_ssid?'<span class="mono" style="font-size:12px;color:var(--dim)">'+esc(r.wifi_ssid)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
       const rowB = hasSeg
-        ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="6" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
+        ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="7" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
         : "";
       return rowA+rowB;
     }).join("");
@@ -988,6 +996,7 @@ function renderFleet(){
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
         <th class="sortable" data-sort="pending" style="text-align:right">Pend. ${arrow("pending")}</th>
         <th class="sortable" data-sort="version">Versión ${arrow("version")}</th>
+        <th class="sortable" data-sort="wifi">Red WiFi ${arrow("wifi")}</th>
       </tr></thead>
       <tbody>${trs}</tbody>
     </table></div><div class="fleet-caption">${capCount} · ordenadas por severidad · clic en una fila para ver el detalle</div>`;
@@ -1137,6 +1146,7 @@ function renderDetail(){
     ${kv("Transporte", {t:isNil(r.net_transport)?"—":({wifi:"WiFi",cellular:"Celular",ethernet:"Cable",none:"Sin red",other:"Otro"}[r.net_transport]||r.net_transport),n:isNil(r.net_transport)})}
     ${kv("Internet real", boolTxt(r.net_validated), r.net_validated===false?"warn":"", FIELD_TIP.net_validated)}
     ${kv("Señal WiFi", num(r.wifi_rssi_dbm,"dBm"), "", FIELD_TIP.wifi_rssi)}
+    ${kv("Red WiFi", {t:isNil(r.wifi_ssid)?"—":String(r.wifi_ssid),n:isNil(r.wifi_ssid)}, "", FIELD_TIP.wifi_ssid)}
     ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false}, "", FIELD_TIP.cell_level)}
     ${kv("Modo avión", boolTxt(r.airplane_mode), r.airplane_mode===true?"crit":"")}
   </div>`;
@@ -1993,6 +2003,7 @@ function demoFleet(){
       battery_voltage_mv: nl?null: Math.round(3700+rnd()*500),
       net_transport: transport, net_validated: transport==="none"?false:validated,
       wifi_rssi_dbm: transport==="wifi"? Math.round(-40-rnd()*50): null,
+      wifi_ssid: transport==="wifi" ? ["YAC-Norte-WiFi","Base-Central","YAC-Sur-2G"][Math.floor(rnd()*3)] : null,
       cell_level: transport==="cellular"? Math.round(rnd()*4): (rnd()<0.5?Math.round(rnd()*4):null),
       airplane_mode:false,
       location_enabled: locEnabled, last_fix_accuracy_m: locEnabled? Math.round(4+rnd()*40):null,
@@ -2040,6 +2051,7 @@ function demoHistory(serial,span){
       battery_temp_c: 24+rnd()*16, net_transport:transport,
       net_validated: transport==="none"?false:(rnd()<0.85),
       wifi_rssi_dbm: transport==="wifi"?Math.round(-40-rnd()*45):null,
+      wifi_ssid: transport==="wifi" ? ["YAC-Norte-WiFi","Base-Central","YAC-Sur-2G"][Math.floor(rnd()*3)] : null,
       cell_level: transport==="cellular"?Math.round(rnd()*4):null, airplane_mode:false,
       points_pending:Math.max(0,Math.round(pend)), oldest_pending_age_s:pend*900,
       points_sent_48h:Math.round(rnd()*200), last_sync_ok: rnd()<0.9, last_sync_error:null,
