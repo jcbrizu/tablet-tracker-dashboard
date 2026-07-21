@@ -5,31 +5,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Monitoreo de flota · Tablets de campo</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
+  /* ---------- Design tokens · paleta de marca Axion Energy (acento magenta) ----------
+     El acento pasa a magenta Axion; el verde de Axion se deja afuera a propósito para
+     no competir con el verde "OK" del semáforo. El semáforo (crit/warn/ok) NO son
+     colores de marca: son funcionales. Se conservan las variables *-text / panel3 /
+     border-strong / nodata* / wifi-cell-noint-nonet-gap / shadow que el resto del CSS
+     ya referencia. */
   :root{
-    --bg:#e9ecef; --panel:#ffffff; --panel2:#f4f6f7; --panel3:#eceff1;
-    --border:#d5dbe0; --border-strong:#c2cad1;
-    --text:#161b20; --dim:#5c6771; --faint:#8a949d;
-    --accent:#0f6d78; --accent-weak:#e0eef0; --accent-text:#0b545d;
-    --crit:#c53434; --crit-bg:#f8e4e4; --crit-text:#8f2020;
-    --warn:#b5760a; --warn-bg:#fbeed6; --warn-text:#875607;
-    --ok:#1f8a5b; --ok-bg:#e0f1e8; --ok-text:#166b46;
+    --bg:#e5e8eb; --panel:#ffffff; --panel2:#f7f9fa; --panel3:#eef1f3;
+    --border:#dce1e5; --border2:#eef1f3; --border-strong:#c2cad1;
+    --text:#14181c; --dim:#5a646e; --faint:#8b95a0;
+    --accent:#9e1e62; --accent-ink:#7a1a4d; --accent-bg:#f6dae7;
+    --accent-weak:#f6dae7; --accent-text:#7a1a4d;
+    --crit:#c4342f; --crit-bg:#fae7e6; --crit-text:#8f2020; --crit-tint:rgba(196,52,47,.045);
+    --warn:#a15a0a; --warn-bg:#f5ecdd; --warn-text:#875607; --warn-tint:rgba(161,90,10,.05);
+    --ok:#1c8457; --ok-bg:#e2f0e9; --ok-text:#166b46;
     --nodata:#7a848c; --nodata-bg:#e7eaed;
-    --wifi:#0f6d78; --cell:#3157b8; --noint:#b5760a; --nonet:#a4adb5; --gap:#c9cfd5;
+    --chip:#eef1f3; --track:#eceff1; --track-neutral:#c2c9ce; --input:#f2f4f6;
+    --wifi:#2f7d78; --cell:#3a5bd0; --noint:#c07a12; --nonet:#b6bdc3; --gap:#c9cfd5;
     --shadow:0 1px 2px rgba(0,0,0,.06),0 1px 1px rgba(0,0,0,.04);
-    --mono:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,"Segoe UI",system-ui,sans-serif;
+    --mono:'IBM Plex Mono',"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,"Segoe UI",system-ui,sans-serif;
   }
   html[data-theme="dark"]{
-    --bg:#0d1114; --panel:#161c22; --panel2:#1b232a; --panel3:#212b33;
-    --border:#2a343d; --border-strong:#38444e;
-    --text:#e4e9ed; --dim:#95a1ab; --faint:#6c7982;
-    --accent:#38a7b3; --accent-weak:#12292d; --accent-text:#6cc4cd;
-    --crit:#e06060; --crit-bg:#331b1c; --crit-text:#f0a4a4;
-    --warn:#e0a13a; --warn-bg:#332711; --warn-text:#f0c579;
-    --ok:#3fb07c; --ok-bg:#132a20; --ok-text:#7ed3a9;
+    --bg:#0c1013; --panel:#151b21; --panel2:#11171d; --panel3:#212a31;
+    --border:#263038; --border2:#212a31; --border-strong:#38444e;
+    --text:#e6ebef; --dim:#98a2ac; --faint:#616d76;
+    --accent:#ec008b; --accent-ink:#f06cb4; --accent-bg:#3a1730;
+    --accent-weak:#3a1730; --accent-text:#f06cb4;
+    --crit:#f0716b; --crit-bg:#3a1917; --crit-text:#f0a4a4; --crit-tint:rgba(240,113,107,.07);
+    --warn:#e0a020; --warn-bg:#332a12; --warn-text:#f0c579; --warn-tint:rgba(224,160,32,.06);
+    --ok:#3fbd85; --ok-bg:#132a20; --ok-text:#7ed3a9;
     --nodata:#8b959d; --nodata-bg:#232c33;
-    --wifi:#38a7b3; --cell:#6f96e8; --noint:#e0a13a; --nonet:#5b6771; --gap:#2c363f;
+    --chip:#242e36; --track:#242e36; --track-neutral:#3f4b54; --input:#0c1013;
+    --wifi:#2f9d95; --cell:#6f96e8; --noint:#d69a2e; --nonet:#5b6771; --gap:#2c363f;
     --shadow:0 1px 2px rgba(0,0,0,.4);
   }
   *{box-sizing:border-box}
@@ -50,25 +63,25 @@
 
   /* ---------- App chrome ---------- */
   .topbar{
-    display:flex;align-items:center;gap:14px;height:52px;padding:0 16px;
+    display:flex;align-items:center;gap:14px;height:52px;padding:0 22px;
     background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;
   }
-  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
-  .brand .glyph{width:22px;height:22px;border-radius:5px;background:var(--accent);position:relative;flex:0 0 auto}
-  .brand .glyph::after{content:"";position:absolute;inset:6px;border:2px solid var(--panel);border-radius:50%}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .brand .glyph{width:26px;height:26px;border-radius:7px;background:var(--accent);position:relative;flex:0 0 auto}
+  .brand .glyph::after{content:"";position:absolute;top:50%;left:50%;width:11px;height:11px;transform:translate(-50%,-50%);border:2.5px solid #fff;border-radius:50%}
   .brand small{font-weight:400;color:var(--dim);letter-spacing:0}
   .demo-banner{
     display:flex;align-items:center;justify-content:center;gap:8px;
-    padding:8px 16px;background:var(--warn-bg);color:var(--warn-text);
-    font-weight:700;font-size:13px;border-bottom:1px solid var(--border-strong);
+    padding:7px 16px;background:var(--warn-bg);color:var(--warn-text);
+    font-weight:600;font-size:12.5px;border-bottom:1px solid var(--border-strong);
   }
   .topbar .spacer{flex:1}
   .iconbtn{
-    display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 11px;
-    background:var(--panel2);border:1px solid var(--border);border-radius:7px;color:var(--text);
-    font-size:13px;font-weight:500;
+    display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;
+    background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--dim);
+    font-size:12.5px;font-weight:500;
   }
-  .iconbtn:hover{border-color:var(--border-strong);background:var(--panel3)}
+  .iconbtn:hover{border-color:var(--border-strong);background:var(--panel3);color:var(--text)}
   .refresh-note{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:7px}
   .pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok)}
   .pulse.on{animation:pulse 1.1s ease-out}
@@ -76,48 +89,53 @@
 
   .wrap{max-width:1500px;margin:0 auto;padding:16px}
 
-  /* ---------- Summary cards ---------- */
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
-  .card{
-    background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px 14px;
-    display:flex;flex-direction:column;gap:2px;box-shadow:var(--shadow);position:relative;overflow:hidden;
-  }
-  .card .num{font-size:26px;font-weight:650;line-height:1.1}
-  .card .lbl{font-size:12px;color:var(--dim)}
+  /* ---------- Summary cards (KPI jerarquizados) ---------- */
+  .cards{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:11px;margin-bottom:12px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:16px 18px}
   .card.clickable{cursor:pointer;user-select:none}
   .card.clickable:hover{border-color:var(--border-strong)}
-  .card.active{outline:2px solid var(--accent);outline-offset:-1px}
-  .card .rail{position:absolute;left:0;top:0;bottom:0;width:4px}
-  .card.c-total .rail{background:var(--accent)}
-  .card.c-crit .rail{background:var(--crit)} .card.c-crit .num{color:var(--crit-text)}
-  .card.c-warn .rail{background:var(--warn)} .card.c-warn .num{color:var(--warn-text)}
-  .card.c-ok .rail{background:var(--ok)} .card.c-ok .num{color:var(--ok-text)}
-  .card.c-stale .rail{background:var(--nodata)}
+  .card.clickable.active{box-shadow:inset 0 0 0 2px var(--accent)}
+  .kpi-lbl{display:flex;align-items:center;gap:7px;font:600 11px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .kpi-num{font:600 30px/1 var(--mono);letter-spacing:-.01em;margin-top:8px}
+  .kpi-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  /* Atención = dominante */
+  .kpi-crit{background:var(--crit);border-color:transparent;color:#fff;box-shadow:0 1px 3px rgba(196,52,47,.28)}
+  .kpi-crit .kpi-lbl{color:#fff;opacity:.92}
+  .kpi-crit .kpi-dot{background:#fff}
+  .kpi-crit .kpi-num{font-size:40px}
+  .kpi-crit.clickable:hover{border-color:transparent;filter:brightness(1.04)}
+  .kpi-crit.clickable.active{box-shadow:inset 0 0 0 3px rgba(255,255,255,.75)}
+  .kpi-warn .kpi-lbl{color:var(--warn)}
+  .kpi-ok .kpi-lbl{color:var(--ok)}
+  .kpi-stale .kpi-lbl{color:var(--faint)}
 
-  /* ---------- Toolbar ---------- */
-  .toolbar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:10px}
+  /* ---------- Toolbar (panel pegado a la tabla) ---------- */
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid var(--border);border-bottom:none;
+    border-radius:11px 11px 0 0;padding:11px 14px;margin-bottom:0;
+  }
   .search{position:relative;flex:1;min-width:200px;max-width:340px}
   .search input{
-    width:100%;height:34px;padding:0 12px 0 32px;border:1px solid var(--border);border-radius:7px;
-    background:var(--panel);color:var(--text);font-size:13.5px;
+    width:100%;height:34px;padding:0 12px 0 32px;border:1px solid var(--border);border-radius:8px;
+    background:var(--input);color:var(--text);font-size:13px;
   }
   .search input:focus{outline:none;border-color:var(--accent)}
   .search .mag{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:13px;height:13px;border:2px solid var(--faint);border-radius:50%}
   .search .mag::after{content:"";position:absolute;width:6px;height:2px;background:var(--faint);transform:rotate(45deg);right:-4px;bottom:-1px}
-  .segmented{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--panel)}
+  .segmented{display:inline-flex;gap:4px;border:none;border-radius:8px;background:var(--input);padding:3px}
   .segmented button{
-    border:none;background:transparent;color:var(--dim);height:34px;padding:0 12px;font-size:13px;font-weight:500;
-    border-right:1px solid var(--border);display:flex;align-items:center;gap:6px;
+    border:none;background:transparent;color:var(--dim);height:auto;padding:6px 11px;font-size:12.5px;font-weight:500;
+    border-radius:6px;display:flex;align-items:center;gap:6px;
   }
-  .segmented button:last-child{border-right:none}
-  .segmented button.on{background:var(--panel3);color:var(--text)}
+  .segmented button.on{background:var(--panel);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
   .segmented .dot{width:8px;height:8px;border-radius:50%}
   .dot-crit{background:var(--crit)} .dot-warn{background:var(--warn)} .dot-ok{background:var(--ok)}
   .ugfilter{display:inline-flex;align-items:center;gap:6px}
   .ugfilter label{font-size:12px;color:var(--dim);font-weight:600}
   .ugfilter select{
-    height:34px;padding:0 10px;border:1px solid var(--border);border-radius:7px;
-    background:var(--panel);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;
+    height:34px;padding:0 10px;border:1px solid var(--border);border-radius:8px;
+    background:var(--input);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;
   }
   .ugfilter select:focus{outline:none;border-color:var(--accent)}
 
@@ -125,70 +143,110 @@
   /* overflow:clip (no hidden): hidden crea un scroll container y el thead sticky
      se "pega" dentro de la tarjeta, desplazado 52px, tapando filas. clip recorta
      las esquinas igual pero deja al sticky referenciar el viewport. */
-  .tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:clip;box-shadow:var(--shadow)}
+  .tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:0 0 11px 11px;overflow:clip;box-shadow:var(--shadow)}
   #fleetMap{width:100%;height:65vh}
-  .offmap-caption{font-size:12px;color:var(--dim);margin:8px 2px 0}
+  .offmap-caption{font-size:12px;color:var(--faint);margin:10px 2px 0}
+  .fleet-caption{font-size:12px;color:var(--faint);margin:10px 2px 0;padding-left:2px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead th{
-    text-align:left;font-weight:600;color:var(--dim);font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;
-    padding:9px 12px;border-bottom:1px solid var(--border);background:var(--panel2);position:sticky;top:52px;z-index:5;
+    text-align:left;font:600 10.5px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint);
+    padding:10px 12px;border-bottom:1px solid var(--border);background:var(--panel2);position:sticky;top:52px;z-index:5;
     white-space:nowrap;
   }
   thead th.sortable{cursor:pointer;user-select:none}
-  thead th.sortable:hover{color:var(--text)}
+  thead th.sortable:hover{color:var(--dim)}
   thead th .arrow{font-size:9px;opacity:.7;margin-left:3px}
-  tbody td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+  tbody td{padding:8px 12px;border-bottom:1px solid var(--border2);vertical-align:middle;white-space:nowrap}
   tbody tr{cursor:pointer}
-  tbody tr:hover{background:var(--panel2)}
   tbody tr:last-child td{border-bottom:none}
-  .serial{font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:-.2px}
-  /* Lavado de fondo de la fila = refleja el semáforo (nunca criterio propio) */
-  .rowcrit td{background:color-mix(in oklab,var(--crit-bg) 30%,transparent)}
-  .rowwarn td{background:color-mix(in oklab,var(--warn-bg) 25%,transparent)}
+  .serialcell{display:flex;flex-direction:column;gap:2px}
+  .serial{font:600 13px/1.25 var(--mono);letter-spacing:-.2px}
+  .serial-name{font-size:11.5px;color:var(--dim);font-weight:400}
 
-  /* Fila de flota partida en 2 <tr>: rowA (datos principales) + rowB (seguimiento).
-     El borde inferior del grupo va sólo en rowB para que se vean "pegadas". */
-  .fleettbl tbody tr.rowA td{border-bottom:none}
-  .fleettbl tbody tr.rowB td.trackcell{
-    padding:2px 12px 8px;font-size:12px;line-height:1.7;white-space:normal;color:var(--dim);
-  }
-  /* Hover agrupado: JS agrega/saca .hoverpair en rowA+rowB juntas al pasar el mouse por cualquiera */
-  .fleettbl tbody tr.hoverpair{background:var(--panel2)}
+  /* Rail de severidad (border-left) + tinte de fila = reflejan el semáforo. */
+  .fleettbl tbody tr>td:first-child{border-left:3px solid transparent}
+  .fleettbl tbody tr.rowcrit>td:first-child{border-left-color:var(--crit)}
+  .fleettbl tbody tr.rowwarn>td:first-child{border-left-color:var(--warn)}
+  .fleettbl tbody tr.rowcrit>td{background:var(--crit-tint)}
+  .fleettbl tbody tr.rowwarn>td{background:var(--warn-tint)}
 
-  /* ---------- Badge ---------- */
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:20px;font-size:11.5px;font-weight:600;line-height:1.6}
-  .badge .ic{width:14px;height:14px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;border-radius:50%}
-  .b-crit{background:var(--crit-bg);color:var(--crit-text)} .b-crit .ic{background:var(--crit);color:#fff}
-  .b-warn{background:var(--warn-bg);color:var(--warn-text)} .b-warn .ic{background:var(--warn);color:#fff}
-  .b-ok{background:var(--ok-bg);color:var(--ok-text)} .b-ok .ic{background:var(--ok);color:#fff}
-  .b-nodata{background:var(--nodata-bg);color:var(--dim)} .b-nodata .ic{background:var(--nodata);color:#fff}
+  /* Fila de flota: rowA (datos). Si hay ficha, rowB (chips) va debajo, misma fila
+     visual. Sin ficha → rowA.solo (con borde inferior propio, sin rowB). */
+  .fleettbl tbody tr.rowA>td{padding:11px 12px;border-bottom:none}
+  .fleettbl tbody tr.rowA.solo>td{border-bottom:1px solid var(--border2)}
+  .fleettbl tbody tr.rowB>td.trackcell{padding:0 12px 11px;white-space:normal}
+  /* Hover agrupado: JS agrega/saca .hoverpair en rowA+rowB juntas. */
+  .fleettbl tbody tr.hoverpair>td{background:var(--panel2)}
+
+  .statuscell{display:flex;align-items:center;gap:9px;min-width:0}
+  .tagbadge{font:600 10px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:4px 6px;border-radius:4px;flex:none}
+  .tb-crit{color:var(--crit);background:var(--crit-bg)}
+  .tb-warn{color:var(--warn);background:var(--warn-bg)}
+  .tb-ok{color:var(--ok);background:var(--ok-bg)}
+  .tb-nodata{color:var(--dim);background:var(--nodata-bg)}
+  .motivo{font-weight:500;font-size:13.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .motivo.ok{color:var(--dim)}
+  .seg-ghost{font-size:11.5px;color:var(--faint);opacity:.7;flex:none}
+  .trackchips{display:flex;gap:7px;flex-wrap:wrap}
+  .tchip{font-size:11.5px;color:var(--text);background:var(--chip);padding:3px 10px;border-radius:20px}
+  .tchip .k{color:var(--faint)}
+
+  /* ---------- Badge (pill · usado en el detalle) ---------- */
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;font-size:13px;font-weight:600;line-height:1.4}
+  .badge .ic{width:8px;height:8px;flex:0 0 auto;border-radius:50%;font-size:0}
+  .b-crit{background:var(--crit-bg);color:var(--crit)} .b-crit .ic{background:var(--crit)}
+  .b-warn{background:var(--warn-bg);color:var(--warn)} .b-warn .ic{background:var(--warn)}
+  .b-ok{background:var(--ok-bg);color:var(--ok)} .b-ok .ic{background:var(--ok)}
+  .b-nodata{background:var(--nodata-bg);color:var(--dim)} .b-nodata .ic{background:var(--nodata)}
   .reason{font-weight:600}
   .reason.r-crit{color:var(--crit-text)} .reason.r-warn{color:var(--warn-text)} .reason.r-ok{color:var(--dim);font-weight:400}
   .cellstack{display:flex;align-items:center;gap:8px}
 
-  /* battery */
-  .batt{display:inline-flex;align-items:center;gap:6px}
-  .batt svg{display:block}
+  /* battery microbar */
+  .batt{display:inline-flex;align-items:center;gap:8px}
+  .battbar{width:44px;height:7px;border-radius:4px;background:var(--track);overflow:hidden;display:inline-block;flex:none}
+  .battfill{display:block;height:100%}
+  .battpct{font:600 12.5px/1 var(--mono)}
+  .battpct.null{color:var(--faint)}
+  .chg{color:var(--ok);font-size:11px}
   .netcell{display:inline-flex;align-items:center;gap:7px}
   .nettag{display:inline-flex;align-items:center;gap:5px;font-size:12.5px}
   .netdot{width:8px;height:8px;border-radius:50%}
-  .pend{font-weight:600}
-  .pend.hi{color:var(--warn-text)} .pend.crit{color:var(--crit-text)}
-  .edited{color:var(--warn-text);cursor:default}
+  .pend{font:600 13px/1 var(--mono);color:var(--dim)}
+  .pend.hi{color:var(--warn)} .pend.crit{color:var(--crit)}
+  .edited{color:var(--warn);cursor:default}
 
   /* ---------- Detail ---------- */
-  .detail-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
-  .back{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--text);font-weight:500;font-size:13px}
-  .back:hover{border-color:var(--border-strong)}
-  .detail-title{display:flex;flex-direction:column;gap:5px}
-  .detail-title h1{margin:0;font-size:21px;font-family:var(--mono);letter-spacing:-.5px}
+  .detail-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .back{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--dim);font-weight:500;font-size:13px}
+  .back:hover{border-color:var(--border-strong);color:var(--text)}
+  .detail-serial{margin:0;font:600 20px/1 var(--mono);letter-spacing:-.01em}
+  .detail-name{font-weight:600;font-size:14px}
   .detail-sub{color:var(--dim);font-size:13px}
 
-  .groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:16px}
-  .group{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
-  .group h3{margin:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);padding:9px 13px;border-bottom:1px solid var(--border);background:var(--panel2)}
-  .mapcard{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
-  .mapcard h3{margin:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);padding:9px 13px;border-bottom:1px solid var(--border);background:var(--panel2)}
+  /* Banner de diagnóstico (solo Atención / Observación) */
+  .diag{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:20px 22px;margin-bottom:12px}
+  .diag-over{display:flex;align-items:center;gap:7px;margin-bottom:12px;font:600 11px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase}
+  .diag-over .d{width:7px;height:7px;border-radius:50%;flex:none}
+  .diag-main{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .diag-main .m{font-weight:600;font-size:22px;letter-spacing:-.01em}
+  .diag-main .e{font-size:14px;color:var(--dim);max-width:64ch}
+  .diag-chips{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .diag-chip{border:1px solid var(--border);background:var(--panel2);border-radius:8px;padding:9px 13px}
+  .diag-chip .k{font:600 10px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--faint)}
+  .diag-chip .v{font:600 15px/1 var(--mono);margin-top:5px}
+  .ok-strip{background:var(--ok-bg);border:1px solid var(--border);border-radius:11px;padding:16px 20px;margin-bottom:12px;display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .ok-strip .d{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
+  .ok-strip .t{font-weight:600;font-size:15px;color:var(--ok)}
+  .ok-strip .s{font-size:13.5px;color:var(--dim)}
+
+  .groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:11px;margin-bottom:12px}
+  .group{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:15px 16px;position:relative}
+  .group.culprit{border-width:1.5px}
+  .culprit-tag{position:absolute;top:-8px;left:14px;font:600 9px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:#fff;padding:3px 7px;border-radius:4px}
+  .group h3{margin:0 0 12px;font:600 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:0;border:none;background:none}
+  .mapcard{background:var(--panel);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
+  .mapcard h3{margin:0;font:600 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:14px 16px 0;border:none;background:none}
   .mapcard .mapbody{padding:12px 13px}
   .mapcard .mapcaption{font-size:11.5px;color:var(--dim);margin:0 0 8px}
   .mapcard iframe{display:block;width:100%;height:260px;border:1px solid var(--border);border-radius:6px}
@@ -196,10 +254,10 @@
 
   /* ---------- Seguimiento (panel editable + historial) ---------- */
   .seg-body{display:flex;flex-direction:column;gap:12px}
-  .seg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
-  .seg-field{display:flex;flex-direction:column;gap:4px}
-  .seg-field label{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-  .seg-field input{height:34px;padding:0 10px;border:1px solid var(--border);border-radius:7px;background:var(--panel2);color:var(--text);font-size:13px}
+  .seg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 16px}
+  .seg-field{display:flex;flex-direction:column;gap:7px}
+  .seg-field label{font:600 10px/1 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  .seg-field input{height:38px;padding:0 11px;border:1px solid var(--border);border-radius:8px;background:var(--input);color:var(--text);font-size:13px}
   .seg-field input:focus{outline:none;border-color:var(--accent);background:var(--panel)}
   .seg-actions{display:flex;align-items:center;gap:12px}
   .seg-actions .btn-primary{width:auto;padding:0 18px;height:34px}
@@ -209,18 +267,19 @@
   .seg-hist-item{padding:8px 13px;border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.5}
   .seg-hist-item:last-child{border-bottom:none}
   .seg-hist-item .meta{color:var(--dim);font-weight:600}
-  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 13px;border-bottom:1px solid var(--border);font-size:12.5px}
-  .kv:last-child{border-bottom:none}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border:none;font-size:12.5px}
   .kv .k{color:var(--dim)}
-  .kv .v{font-weight:600;text-align:right}
+  .kv .v{font:600 12.5px/1.3 var(--mono);text-align:right}
   .kv .v.null{color:var(--faint);font-weight:400}
   .kv .v.detail{font-family:var(--mono);font-weight:400;color:var(--dim);white-space:normal;word-break:break-word;text-align:right}
-  .kv.bad{background:var(--crit-bg)} .kv.bad .k,.kv.bad .v{color:var(--crit-text)}
-  .kv.warn{background:var(--warn-bg)} .kv.warn .k,.kv.warn .v{color:var(--warn-text)}
+  .kv.bad .v{color:var(--crit)}
+  .kv.warn .v{color:var(--warn)}
+  .kv[title]{cursor:help}
+  .kv[title] .v{text-decoration:underline dotted var(--faint);text-underline-offset:3px}
 
-  .panelbox{background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow);margin-bottom:14px}
-  .panelbox .ph{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-  .panelbox .ph h2{margin:0;font-size:14px}
+  .panelbox{background:var(--panel);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);margin-bottom:12px}
+  .panelbox .ph{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .panelbox .ph h2{margin:0;font:600 10.5px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
   .chart{padding:6px 8px 12px}
   .chart .clabel{display:flex;align-items:baseline;gap:9px;padding:8px 8px 2px}
   .chart .clabel .t{font-size:12.5px;font-weight:600}
@@ -287,10 +346,48 @@
   .link-btn:hover{text-decoration:underline}
 
 
-  @media(max-width:640px){
+  /* ---------- Reflow móvil ---------- */
+  @media(max-width:720px){
     .wrap{padding:10px}
-    thead th{top:52px}
-    .col-hide-sm{display:none}
+    /* KPI: 2 columnas, Atención domina (fila completa) */
+    .cards{grid-template-columns:1fr 1fr;gap:9px}
+    .kpi-crit{grid-column:1 / -1}
+    .kpi-crit .kpi-num{font-size:34px}
+    .toolbar{gap:8px}
+    /* Tabla → tarjetas apiladas: cada tablet colapsa a una tarjeta, sin cortes */
+    .fleettbl thead{display:none}
+    .fleettbl,.fleettbl tbody{display:block;width:100%}
+    .fleettbl tbody tr.rowA{
+      display:flex;flex-wrap:wrap;align-items:center;column-gap:14px;row-gap:8px;
+      padding:12px 14px;border-left:3px solid transparent;border-bottom:1px solid var(--border2);
+    }
+    .fleettbl tbody tr.rowA.solo{border-bottom:1px solid var(--border2)}
+    .fleettbl tbody tr.rowcrit.rowA{border-left-color:var(--crit);background:var(--crit-tint)}
+    .fleettbl tbody tr.rowwarn.rowA{border-left-color:var(--warn);background:var(--warn-tint)}
+    .fleettbl tbody tr.rowA>td{display:block;padding:0;border:none!important;background:transparent;white-space:normal}
+    .fleettbl tbody tr.rowA>td:first-child{border-left:none}
+    .fleettbl tbody tr.rowA>.serialcell,
+    .fleettbl tbody tr.rowA>td:nth-child(1){flex:1 1 100%}
+    .fleettbl tbody tr.rowA>td:nth-child(2){flex:1 1 100%}   /* estado + motivo, línea propia */
+    .motivo{white-space:normal}
+    .fleettbl tbody tr.rowA>td:nth-child(n+3){flex:0 0 auto}  /* métricas: fila envolvente */
+    .fleettbl tbody tr.rowA>td.pendcell{text-align:left}
+    .fleettbl tbody tr.rowA>td.pendcell::before{content:"Pend. ";color:var(--faint);font-size:11.5px}
+    .fleettbl tbody tr.rowA>td.vercell::before{content:"v ";color:var(--faint);font-size:11.5px}
+    /* Chips de seguimiento: bloque debajo, mismo rail/tinte */
+    .fleettbl tbody tr.rowB{display:block}
+    .fleettbl tbody tr.rowB>td.trackcell{display:block;padding:0 14px 12px;border-left:3px solid transparent}
+    .fleettbl tbody tr.rowcrit.rowB>td.trackcell{border-left-color:var(--crit);background:var(--crit-tint)}
+    .fleettbl tbody tr.rowwarn.rowB>td.trackcell{border-left-color:var(--warn);background:var(--warn-tint)}
+    /* Detalle: paneles y seguimiento a 1 columna */
+    .groups{grid-template-columns:1fr}
+    .detail-panels{grid-template-columns:1fr!important}
+    .seg-grid{grid-template-columns:1fr 1fr!important}
+  }
+  @media(max-width:460px){
+    .cards{grid-template-columns:1fr}
+    .kpi-crit{grid-column:auto}
+    .seg-grid{grid-template-columns:1fr!important}
   }
 </style>
 </head>
@@ -508,6 +605,77 @@ const LEVEL_META={
   ok:{cls:"ok",word:"OK",ic:"✓"},
 };
 
+// Códigos de error de envío (last_sync_error) → etiqueta corta + explicación en
+// lenguaje llano para el tooltip. Los códigos los emite el worker de sync de la app.
+const SYNC_ERR_LABEL = {partial_failure:"Falla parcial", auth_failure:"Falla de autenticación"};
+const SYNC_ERR_TIP = {
+  partial_failure:"La app envió algunos puntos al GIS pero otros quedaron en cola. Reintenta los que faltan en el próximo ciclo.",
+  auth_failure:"El GIS rechazó las credenciales de la app, así que no pudo enviar. Suele ser un token o certificado vencido o mal configurado.",
+};
+const SYNC_ERR_TIP_GENERIC = "La app registró un error al intentar enviar al GIS. Ver «Detalle del error» abajo si hay más información.";
+
+// Explicaciones en lenguaje llano para los campos técnicos del detalle. Se muestran
+// como tooltip nativo (hover) en la fila correspondiente. Sólo los campos que un
+// operario no-técnico no interpreta a simple vista — los obvios no llevan.
+const FIELD_TIP = {
+  points_pending:"Puntos de ubicación capturados que todavía no llegaron al GIS. Se acumulan cuando no hay envío y se vacían cuando la app logra sincronizar.",
+  points_pending_2:"Puntos en cola para el segundo destino GIS (envío doble). «—» si el equipo no tiene un segundo destino configurado.",
+  points_sent_48h:"Puntos enviados con éxito en las últimas 48 horas. No es un total histórico: es una ventana móvil de 48 h.",
+  battery_opt_exempt:"Android puede «dormir» apps para ahorrar batería. Si está exenta, el sistema no la frena y sigue capturando y enviando en segundo plano.",
+  power_save:"El modo de ahorro de batería del dispositivo está activo. Puede limitar lo que la app hace en segundo plano.",
+  managed_config:"La app recibió su configuración de empresa (endpoint, intervalo, credenciales) vía Intune. Si dice No, puede no saber a dónde ni cómo enviar.",
+  last_heartbeat_srv:"Momento en que el servidor recibió el último latido de salud de esta tablet.",
+  device_clock:"Hora del reloj interno de la tablet en su último latido. Si difiere mucho del latido de servidor, el reloj puede estar desajustado.",
+  net_validated:"La red no sólo está conectada: tiene salida real a internet (verificada). Una tablet puede estar en WiFi pero sin internet, y ahí los puntos se acumulan.",
+  wifi_rssi:"Intensidad de la señal WiFi en dBm. Más cerca de 0 es mejor: ~−50 excelente, ~−70 aceptable, ~−85 o menos es débil.",
+  cell_level:"Barras de señal de datos móviles, de 0 (sin señal) a 4 (máxima).",
+  location_enabled:"El GPS del dispositivo está encendido a nivel sistema.",
+  location_perm:"La app tiene concedido el permiso para usar la ubicación. Puede estar el GPS encendido pero la app sin permiso.",
+  fix_accuracy:"Radio de error estimado del último punto GPS. Menos metros = más preciso (10 m es muy bueno; 100 m es pobre).",
+  fix_age:"Hace cuánto se obtuvo el último punto GPS. Si es muy viejo, el GPS puede no estar fijando posición.",
+  ram_low:"El sistema avisó que la memoria libre está en nivel bajo. Puede afectar el rendimiento de la app.",
+  boot_time:"Cuándo se encendió la tablet por última vez. Desde ese momento viene funcionando sin apagarse.",
+  security_patch:"Fecha del último parche de seguridad de Android instalado en la tablet.",
+};
+
+// Diagnóstico del detalle: mapea el motivo principal (s.main) a un panel "sospechoso"
+// (app|bat|net|gps|sis) + explicación + 2-3 chips-métrica. Deriva del mismo dato que
+// evalStatus. Devuelve {culprit:null,...} para OK o cuando no hay un único panel.
+function diagnose(r,s){
+  const m=s.main||"";
+  const tm = s.recv?relTime(s.recv).replace(/^hace\s+/,""):"—";
+  const P=(k,v,bad)=>({k,v:isNil(v)?"—":String(v),bad:!!bad});
+  const pend=num(r.points_pending).t;
+  if(s.level==="ok") return {culprit:null,explain:"",chips:[]};
+  if(/^Sin señal/.test(m))
+    return {culprit:null, explain:"La tablet no envía un latido de salud desde hace "+tm+". Puede estar apagada, sin datos o guardada.",
+      chips:[P("Última señal",tm,true),P("Puntos pendientes",pend,false)]};
+  if(/Batería/.test(m))
+    return {culprit:"bat", explain:"La batería está en "+r.battery_pct+"% y la tablet no está cargando. Por debajo del 15% entra en Atención.",
+      chips:[P("Nivel",r.battery_pct+"%",true),P("Cargando",boolSiNo(r.battery_charging)||"No",true),P("Última señal",tm,false)]};
+  if(/permiso/i.test(m))
+    return {culprit:"gps", explain:"La app perdió el permiso de ubicación: no puede geolocalizar ni reportar la zona al GIS.",
+      chips:[P("Permiso de ubicación","No",true),P("Puntos pendientes",pend,true),P("Última señal",tm,false)]};
+  if(/Ubicación apagada/i.test(m))
+    return {culprit:"gps", explain:"El GPS del dispositivo está apagado. Sin ubicación activa no se generan puntos para enviar.",
+      chips:[P("Ubicación activada","No",true),P("Última señal",tm,false)]};
+  if(/sin internet/i.test(m))
+    return {culprit:"net", explain:"La tablet está en una red pero sin salida real a internet: los puntos se acumulan sin llegar al GIS.",
+      chips:[P("Internet real","No",true),P("Puntos pendientes",pend,true)]};
+  if(/Almacenamiento/i.test(m))
+    return {culprit:"sis", explain:"El almacenamiento está casi lleno; la app puede no poder guardar nuevos puntos.",
+      chips:[P("Disco libre",fmtMB(r.storage_free_mb).t,true),P("Puntos pendientes",pend,true)]};
+  if(/configuración corporativa/i.test(m))
+    return {culprit:"app", explain:"La configuración corporativa (Intune) no está aplicada: la app puede no tener endpoint, intervalo o credenciales.",
+      chips:[P("Config. corporativa OK","No",true),P("Última señal",tm,false)]};
+  if(/restringida/i.test(m))
+    return {culprit:"app", explain:"El sistema restringió la app en segundo plano: puede no capturar ni enviar hasta que se la vuelva a permitir.",
+      chips:[P("App en 2.º plano","Restringida",true),P("Puntos pendientes",pend,false)]};
+  // "No pudo enviar al GIS" / "N puntos sin enviar" y demás de app
+  return {culprit:"app", explain:"El último envío no llegó al GIS y hay "+pend+" puntos acumulados sin enviar.",
+    chips:[P("Último envío OK","No",true),P("Puntos pendientes",pend,true),P("Última señal",tm,false)]};
+}
+
 /* ============================================================
    Exportar CSV de la flota (vista Tabla/Mapa) — es-AR: separador ';',
    BOM UTF-8, CRLF. Único helper de escapado para todas las celdas.
@@ -596,6 +764,17 @@ function batteryIcon(pct,charging){
     ${p!=null?`<rect x="2" y="2" width="${fillW}" height="${h-4}" rx="1.2" fill="${col}"/>`:""}
     ${bolt}
   </svg>`;
+}
+// Microbarra de batería para la tabla de flota: ancho = % ; color SOLO bajo umbral
+// (<15% crit, <30% warn, si no neutro). El % repite el mismo criterio de color.
+function batteryBar(pct,charging){
+  if(isNil(pct)) return `<span class="battbar"><span class="battfill" style="width:0"></span></span><span class="battpct null">—</span>`;
+  const p=Math.max(0,Math.min(100,Number(pct)));
+  const bad=p<15, warn=!bad&&p<30;
+  const fill = bad?"var(--crit)":warn?"var(--warn)":"var(--track-neutral)";
+  const col  = bad?"var(--crit)":warn?"var(--warn)":"var(--dim)";
+  const chg  = charging===true?`<span class="chg" title="Cargando">⚡</span>`:"";
+  return `<span class="battbar"><span class="battfill" style="width:${p}%;background:${fill}"></span></span><span class="battpct" style="color:${col}">${p}%</span>${chg}`;
 }
 function netDotColor(r){
   const t=r.net_transport;
@@ -697,13 +876,14 @@ function renderFleet(){
 
   const arrow=(k)=> state.sort.key===k?`<span class="arrow">${state.sort.dir==="asc"?"▲":"▼"}</span>`:"";
 
+  // KPI jerarquizados: Atención dominante. Clic filtra; clic en el activo limpia
+  // (ver handler). "Sin reportar +1 h" mantiene su filtro stale (mejora conservada).
   const cardsHtml=`
     <div class="cards">
-      <div class="card c-total clickable ${state.filter==="all"?"active":""}" data-filter="all"><span class="rail"></span><span class="num">${counts.total}</span><span class="lbl">Tablets reportando</span></div>
-      <div class="card c-crit clickable ${state.filter==="critical"?"active":""}" data-filter="critical"><span class="rail"></span><span class="num">${counts.critical}</span><span class="lbl">Atención</span></div>
-      <div class="card c-warn clickable ${state.filter==="warning"?"active":""}" data-filter="warning"><span class="rail"></span><span class="num">${counts.warning}</span><span class="lbl">En observación</span></div>
-      <div class="card c-ok clickable ${state.filter==="ok"?"active":""}" data-filter="ok"><span class="rail"></span><span class="num">${counts.ok}</span><span class="lbl">OK</span></div>
-      <div class="card c-stale clickable ${state.filter==="stale"?"active":""}" data-filter="stale"><span class="rail"></span><span class="num">${counts.stale}</span><span class="lbl">Sin reportar +1 h</span></div>
+      <div class="card kpi-crit clickable ${state.filter==="critical"?"active":""}" data-filter="critical"><div class="kpi-lbl"><span class="kpi-dot"></span>Atención</div><div class="kpi-num">${counts.critical}</div></div>
+      <div class="card kpi-warn clickable ${state.filter==="warning"?"active":""}" data-filter="warning"><div class="kpi-lbl">En observación</div><div class="kpi-num">${counts.warning}</div></div>
+      <div class="card kpi-ok clickable ${state.filter==="ok"?"active":""}" data-filter="ok"><div class="kpi-lbl">OK</div><div class="kpi-num">${counts.ok}</div></div>
+      <div class="card kpi-stale clickable ${state.filter==="stale"?"active":""}" data-filter="stale"><div class="kpi-lbl">Sin reportar +1 h</div><div class="kpi-num">${counts.stale}</div></div>
     </div>`;
 
   const toolbar=`
@@ -763,55 +943,57 @@ function renderFleet(){
     const trs=list.map(({r,s})=>{
       const m=LEVEL_META[s.level];
       const rowCls = s.level==="critical"?"rowcrit":s.level==="warning"?"rowwarn":"";
-      const pcls = r.points_pending==null?"":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
+      const pcls = r.points_pending==null?"pend":(r.points_pending>20?"pend crit":r.points_pending>0?"pend hi":"pend");
       const dname=state.deviceNames.get(r.device_serial);
       const trk=state.trackingMap.get(r.device_serial);
-      const tv=(key)=> trk&&!isNil(trk[key])?esc(trk[key]):"—";
       const serial=esc(r.device_serial);
-      const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}">
-        <td><span class="serial">${esc(r.device_serial||"—")}</span></td>
-        <td>${dname?esc(dname):'<span class="faint">—</span>'}</td>
-        <td><div class="cellstack">
-          <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
-          <span class="reason r-${m.cls}">${esc(s.main)}</span>
+      // Chips de seguimiento: etiqueta gris + valor. Sin ficha → fila de una línea
+      // con acción fantasma "＋ Seguimiento" (elimina el "Sin datos…" repetido).
+      const chips=[];
+      if(trk){
+        const add=(k,key)=>{ if(!isNil(trk[key])) chips.push(`<span class="tchip"><span class="k">${k}</span> ${esc(trk[key])}</span>`); };
+        add("Cuadrilla","cuadrilla"); add("Yacimiento","yacimiento"); add("Proveedor","proveedor");
+        add("Nº","numero"); add("Cel","celular"); add("SMOC","usuario_smoc");
+      }
+      const hasSeg=chips.length>0;
+      const ghost = hasSeg?"":`<span class="seg-ghost">＋ Seguimiento</span>`;
+      const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}${hasSeg?"":" solo"}">
+        <td><div class="serialcell"><span class="serial">${esc(r.device_serial||"—")}</span>${dname?`<span class="serial-name">${esc(dname)}</span>`:""}</div></td>
+        <td><div class="statuscell">
+          <span class="tagbadge tb-${m.cls}">${m.word}</span>
+          <span class="motivo${s.level==="ok"?" ok":""}">${esc(s.main)}</span>
+          ${ghost}
         </div></td>
-        <td>${s.recv?relTime(s.recv):'<span class="faint">sin dato</span>'}</td>
-        <td><span class="batt">${batteryIcon(r.battery_pct,r.battery_charging)} ${r.battery_pct==null?'<span class="faint">—</span>':r.battery_pct+"%"}</span></td>
-        <td class="${pcls}">${r.points_pending==null?'<span class="faint">—</span>':r.points_pending}</td>
-        <td>${(()=>{const iv=intervalSecsOf(r);return iv.eff==null?'<span class="faint">—</span>':esc(fmtIntervalS(iv.eff))+(iv.intune!=null&&iv.intune!==iv.eff?' <span class="edited" title="Editado a mano (Intune: '+esc(fmtIntervalS(iv.intune))+')">✎</span>':'');})()}</td>
-        <td class="col-hide-sm">${r.app_version_name?'<span class="mono" style="font-size:12px">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
+        <td>${s.recv?`<span class="mono" style="font-size:12.5px;color:var(--dim)">${relTime(s.recv)}</span>`:'<span class="faint">sin dato</span>'}</td>
+        <td><span class="batt">${batteryBar(r.battery_pct,r.battery_charging)}</span></td>
+        <td class="pendcell" style="text-align:right"><span class="${pcls}">${r.points_pending==null?"—":r.points_pending}</span></td>
+        <td class="vercell">${r.app_version_name?'<span class="mono" style="font-size:12px;color:var(--faint)">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
-      const trackHtml = trk
-        ? `<span class="faint">Cuadrilla:</span> ${tv("cuadrilla")} ·
-           <span class="faint">Yacimiento:</span> ${tv("yacimiento")} ·
-           <span class="faint">Proveedor:</span> ${tv("proveedor")} ·
-           <span class="faint">Nº:</span> ${tv("numero")} ·
-           <span class="faint">Cel:</span> ${tv("celular")} ·
-           <span class="faint">SMOC:</span> ${tv("usuario_smoc")}`
-        : `<span class="faint">Sin datos de seguimiento — completar en el detalle</span>`;
-      const rowB=`<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="8" class="trackcell">${trackHtml}</td></tr>`;
+      const rowB = hasSeg
+        ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="6" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
+        : "";
       return rowA+rowB;
     }).join("");
+    const capCount = list.length===counts.total ? `${counts.total} tablets` : `${list.length} de ${counts.total} tablets`;
     bodyHtml=`<div class="tablewrap"><table class="fleettbl">
       <thead><tr>
         <th class="sortable" data-sort="serial">Serial ${arrow("serial")}</th>
-        <th>Nombre</th>
         <th class="sortable" data-sort="status">Estado y motivo ${arrow("status")}</th>
         <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
-        <th class="sortable" data-sort="pending">Pend. ${arrow("pending")}</th>
-        <th>Intervalo</th>
-        <th class="sortable col-hide-sm" data-sort="version">Versión ${arrow("version")}</th>
+        <th class="sortable" data-sort="pending" style="text-align:right">Pend. ${arrow("pending")}</th>
+        <th class="sortable" data-sort="version">Versión ${arrow("version")}</th>
       </tr></thead>
       <tbody>${trs}</tbody>
-    </table></div>`;
+    </table></div><div class="fleet-caption">${capCount} · ordenadas por severidad · clic en una fila para ver el detalle</div>`;
   }
 
   content().innerHTML=`<div class="wrap">${cardsHtml}${toolbar}${bodyHtml}${offMapCaptionHtml}</div>`;
 
   // eventos
-  content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.filter; render(); });
-  content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ state.filter=b.dataset.filter; render(); });
+  // Clic en un KPI/segmento aplica ese filtro; clic en el que ya está activo lo limpia.
+  content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ const k=c.dataset.filter; state.filter=(state.filter===k?"all":k); render(); });
+  content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ const k=b.dataset.filter; state.filter=(k==="all"?"all":(state.filter===k?"all":k)); render(); });
   content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ state.fleetView=b.dataset.view; render(); });
   const exportBtn=document.getElementById("exportCsvBtn");
   // `list` es el mismo array (filtrado por UG+estado+búsqueda y ordenado) que
@@ -920,35 +1102,45 @@ function renderDetail(){
   const r = state.fleet.find(x=>x.device_serial===state.device);
   if(!r){ content().innerHTML=`<div class="wrap"><a class="back" id="backBtn">← Volver a la flota</a><div class="empty" style="margin-top:20px">No se encontró la tablet.</div></div>`; document.getElementById("backBtn").onclick=goFleet; return; }
   const s=evalStatus(r); const m=LEVEL_META[s.level];
+  const diag=diagnose(r,s);
+  const dname=state.deviceNames.get(r.device_serial);
 
-  const kv=(k,val,bad)=>{
+  const kv=(k,val,bad,tip)=>{
     const cls=val.n?"null":"";
     const badcls = bad==="crit"?"bad":bad==="warn"?"warn":"";
-    return `<div class="kv ${badcls}"><span class="k">${k}</span><span class="v ${cls}">${esc(val.t)}</span></div>`;
+    const tipAttr = tip?` title="${esc(tip)}"`:"";
+    return `<div class="kv ${badcls}"${tipAttr}><span class="k">${k}</span><span class="v ${cls}">${esc(val.t)}</span></div>`;
+  };
+  // Encabezado de cada panel; el panel "sospechoso" se resalta (borde + tag + título en color).
+  const gh=(key,title)=>{
+    const isC = diag.culprit===key;
+    return `<div class="group${isC?" culprit":""}"${isC?` style="border-color:var(--${m.cls})"`:""}>`
+      + (isC?`<span class="culprit-tag" style="background:var(--${m.cls})">Sospechoso</span>`:"")
+      + `<h3${isC?` style="color:var(--${m.cls})"`:""}>${title}</h3>`;
   };
   // grupos
-  const gBatt=`<div class="group"><h3>Batería</h3>
+  const gBatt=`${gh("bat","Batería")}
     ${kv("Nivel", num(r.battery_pct,"%"), (r.battery_pct!=null&&r.battery_pct<15&&r.battery_charging!==true)?"crit":(r.battery_pct!=null&&r.battery_pct<30&&r.battery_charging!==true)?"warn":"")}
     ${kv("Cargando", boolTxt(r.battery_charging))}
     ${kv("Enchufe", {t:isNil(r.battery_plugged)?"—":({ac:"AC",usb:"USB",wireless:"Inalámbrico",none:"Desconectada"}[r.battery_plugged]||r.battery_plugged),n:isNil(r.battery_plugged)})}
     ${kv("Temperatura", num(r.battery_temp_c,"°C",1), (r.battery_temp_c!=null&&r.battery_temp_c>45)?"warn":"")}
     ${kv("Voltaje", num(r.battery_voltage_mv,"mV"))}
   </div>`;
-  const gNet=`<div class="group"><h3>Conectividad</h3>
+  const gNet=`${gh("net","Conectividad")}
     ${kv("Transporte", {t:isNil(r.net_transport)?"—":({wifi:"WiFi",cellular:"Celular",ethernet:"Cable",none:"Sin red",other:"Otro"}[r.net_transport]||r.net_transport),n:isNil(r.net_transport)})}
-    ${kv("Internet real", boolTxt(r.net_validated), r.net_validated===false?"warn":"")}
-    ${kv("Señal WiFi", num(r.wifi_rssi_dbm,"dBm"))}
-    ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false})}
+    ${kv("Internet real", boolTxt(r.net_validated), r.net_validated===false?"warn":"", FIELD_TIP.net_validated)}
+    ${kv("Señal WiFi", num(r.wifi_rssi_dbm,"dBm"), "", FIELD_TIP.wifi_rssi)}
+    ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false}, "", FIELD_TIP.cell_level)}
     ${kv("Modo avión", boolTxt(r.airplane_mode), r.airplane_mode===true?"crit":"")}
   </div>`;
   const zoneLat = isNil(r.last_fix_lat_approx)?null:Number(r.last_fix_lat_approx);
   const zoneLon = isNil(r.last_fix_lon_approx)?null:Number(r.last_fix_lon_approx);
   const hasZone = zoneLat!=null && zoneLon!=null && isFinite(zoneLat) && isFinite(zoneLon);
-  const gGps=`<div class="group"><h3>GPS / Ubicación</h3>
-    ${kv("Ubicación activada", boolTxt(r.location_enabled), r.location_enabled===false?"crit":"")}
-    ${kv("Permiso de ubicación", boolTxt(r.location_permission_ok), r.location_permission_ok===false?"crit":"")}
-    ${kv("Precisión último punto", num(r.last_fix_accuracy_m,"m"))}
-    ${kv("Antigüedad último punto", {t:fmtDur(r.last_fix_age_s),n:isNil(r.last_fix_age_s)})}
+  const gGps=`${gh("gps","GPS / Ubicación")}
+    ${kv("Ubicación activada", boolTxt(r.location_enabled), r.location_enabled===false?"crit":"", FIELD_TIP.location_enabled)}
+    ${kv("Permiso de ubicación", boolTxt(r.location_permission_ok), r.location_permission_ok===false?"crit":"", FIELD_TIP.location_perm)}
+    ${kv("Precisión último punto", num(r.last_fix_accuracy_m,"m"), "", FIELD_TIP.fix_accuracy)}
+    ${kv("Antigüedad último punto", {t:fmtDur(r.last_fix_age_s),n:isNil(r.last_fix_age_s)}, "", FIELD_TIP.fix_age)}
     ${kv("Zona aproximada", hasZone?{t:zoneLat.toFixed(2)+", "+zoneLon.toFixed(2),n:false}:{t:"—",n:true})}
   </div>`;
   let gMap="";
@@ -967,30 +1159,31 @@ function renderDetail(){
       </div>
     </div>`;
   }
-  const gSys=`<div class="group"><h3>Sistema</h3>
+  const gSys=`${gh("sis","Sistema")}
     ${kv("Almacenamiento libre", fmtMB(r.storage_free_mb), (r.storage_free_mb!=null&&r.storage_free_mb<500)?"crit":"")}
     ${kv("Almacenamiento total", fmtMB(r.storage_total_mb))}
     ${kv("RAM libre", fmtMB(r.ram_free_mb))}
-    ${kv("RAM baja", boolTxt(r.ram_low), r.ram_low===true?"warn":"")}
-    ${kv("Último reinicio", {t:fmtEpoch(r.boot_time),n:isNil(r.boot_time)})}
+    ${kv("RAM baja", boolTxt(r.ram_low), r.ram_low===true?"warn":"", FIELD_TIP.ram_low)}
+    ${kv("Último reinicio", {t:fmtEpoch(r.boot_time),n:isNil(r.boot_time)}, "", FIELD_TIP.boot_time)}
     ${kv("Android", {t:isNil(r.android_version)?"—":String(r.android_version),n:isNil(r.android_version)})}
-    ${kv("Parche de seguridad", {t:isNil(r.security_patch)?"—":String(r.security_patch),n:isNil(r.security_patch)})}
+    ${kv("Parche de seguridad", {t:isNil(r.security_patch)?"—":String(r.security_patch),n:isNil(r.security_patch)}, "", FIELD_TIP.security_patch)}
   </div>`;
-  const gApp=`<div class="group"><h3>App y envío al GIS</h3>
+  const gApp=`${gh("app","App y envío al GIS")}
     ${kv("Versión app", {t:isNil(r.app_version_name)?"—":r.app_version_name+(r.app_version_code?" ("+r.app_version_code+")":""),n:isNil(r.app_version_name)})}
-    ${kv("Puntos pendientes", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"")}
-    ${kv("Pendientes (2.º destino)", num(r.points_pending_2))}
+    ${(()=>{const iv=intervalSecsOf(r);const val=iv.eff==null?{t:"—",n:true}:{t:fmtIntervalS(iv.eff),n:false};const edit=(iv.eff!=null&&iv.intune!=null&&iv.intune!==iv.eff)?' <span class="edited" title="Editado a mano (Intune: '+esc(fmtIntervalS(iv.intune))+')">✎</span>':'';return `<div class="kv"><span class="k">Intervalo de reporte</span><span class="v ${val.n?'null':''}">${esc(val.t)}${edit}</span></div>`;})()}
+    ${kv("Puntos pendientes", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"", FIELD_TIP.points_pending)}
+    ${kv("Pendientes (2.º destino)", num(r.points_pending_2), "", FIELD_TIP.points_pending_2)}
     ${kv("Punto más viejo sin enviar", {t:fmtDur(r.oldest_pending_age_s),n:isNil(r.oldest_pending_age_s)})}
-    ${kv("Enviados (48 h)", num(r.points_sent_48h))}
+    ${kv("Enviados (48 h)", num(r.points_sent_48h), "", FIELD_TIP.points_sent_48h)}
     ${kv("Último envío OK", boolTxt(r.last_sync_ok), r.last_sync_ok===false?"crit":"")}
-    ${kv("Error de envío", {t:isNil(r.last_sync_error)?"—":({partial_failure:"Falla parcial",auth_failure:"Falla de autenticación"}[r.last_sync_error]||r.last_sync_error),n:isNil(r.last_sync_error)}, r.last_sync_error?"warn":"")}
+    ${kv("Error de envío", {t:isNil(r.last_sync_error)?"—":(SYNC_ERR_LABEL[r.last_sync_error]||r.last_sync_error),n:isNil(r.last_sync_error)}, r.last_sync_error?"warn":"", r.last_sync_error?(SYNC_ERR_TIP[r.last_sync_error]||SYNC_ERR_TIP_GENERIC):"")}
     ${isNil(r.last_sync_error_detail)?"":`<div class="kv warn"><span class="k">Detalle del error</span><span class="v detail">${esc(r.last_sync_error_detail)}</span></div>`}
     ${kv("Último envío", {t:fmtEpoch(r.last_sync_at),n:isNil(r.last_sync_at)})}
-    ${kv("Exenta de ahorro batería", boolTxt(r.battery_optimization_exempt), r.battery_optimization_exempt===false?"warn":"")}
-    ${kv("Modo ahorro de energía", boolTxt(r.power_save_mode), r.power_save_mode===true?"warn":"")}
-    ${kv("Config. corporativa OK", boolTxt(r.managed_config_ok), r.managed_config_ok===false?"crit":"")}
-    ${kv("Último latido (servidor)", {t:fmtDateTime(toDate(r.received_at)),n:isNil(r.received_at)})}
-    ${kv("Reloj de la tablet", {t:fmtEpoch(r.reported_at),n:isNil(r.reported_at)})}
+    ${kv("Exenta de ahorro batería", boolTxt(r.battery_optimization_exempt), r.battery_optimization_exempt===false?"warn":"", FIELD_TIP.battery_opt_exempt)}
+    ${kv("Modo ahorro de energía", boolTxt(r.power_save_mode), r.power_save_mode===true?"warn":"", FIELD_TIP.power_save)}
+    ${kv("Config. corporativa OK", boolTxt(r.managed_config_ok), r.managed_config_ok===false?"crit":"", FIELD_TIP.managed_config)}
+    ${kv("Último latido (servidor)", {t:fmtDateTime(toDate(r.received_at)),n:isNil(r.received_at)}, "", FIELD_TIP.last_heartbeat_srv)}
+    ${kv("Reloj de la tablet", {t:fmtEpoch(r.reported_at),n:isNil(r.reported_at)}, "", FIELD_TIP.device_clock)}
   </div>`;
 
   const rangeSeg=`<div class="phctl">
@@ -1002,18 +1195,29 @@ function renderDetail(){
     <button data-r="30d" class="${state.range==="30d"?"on":""}">30 días</button>
   </div></div>`;
 
+  // Banner de diagnóstico (Atención/Observación) o tira "Todo en orden" (OK).
+  const relSig = s.recv?relTime(s.recv):"sin dato";
+  let diagHtml;
+  if(s.level==="ok"){
+    diagHtml=`<div class="ok-strip"><span class="d"></span><span class="t">Todo en orden</span><span class="s">— sin acciones pendientes. Última señal ${relSig}.</span></div>`;
+  }else{
+    const chips=diag.chips.map(c=>`<div class="diag-chip"><div class="k">${esc(c.k)}</div><div class="v" style="${c.bad?`color:var(--${m.cls})`:""}">${esc(c.v)}</div></div>`).join("");
+    diagHtml=`<div class="diag">
+      <div class="diag-over" style="color:var(--${m.cls})"><span class="d" style="background:var(--${m.cls})"></span>${s.level==="critical"?"Por qué requiere atención":"Por qué está en observación"}</div>
+      <div class="diag-main"><div class="m">${esc(s.main)}</div><div class="e">${esc(diag.explain)}</div></div>
+      ${chips?`<div class="diag-chips">${chips}</div>`:""}
+    </div>`;
+  }
+
   content().innerHTML=`<div class="wrap">
     <div class="detail-head">
       <a class="back" id="backBtn">← Volver</a>
-      <div class="detail-title">
-        <h1>${esc(r.device_serial||"—")}</h1>
-        ${state.deviceNames.get(r.device_serial)?`<div class="detail-sub" style="font-weight:600;color:var(--text)">${esc(state.deviceNames.get(r.device_serial))}</div>`:""}
-        <div class="detail-sub">
-          <span class="badge b-${m.cls}"><span class="ic">${m.ic}</span>${m.word}</span>
-          &nbsp;${esc(s.reasons.join(" · "))} · última señal ${s.recv?relTime(s.recv):"sin dato"}
-        </div>
-      </div>
+      <h1 class="detail-serial">${esc(r.device_serial||"—")}</h1>
+      <span class="badge b-${m.cls}"><span class="ic"></span>${m.word}</span>
+      ${dname?`<span class="detail-name">${esc(dname)}</span>`:""}
+      <span class="detail-sub">· última señal ${relSig}</span>
     </div>
+    ${diagHtml}
     <div class="groups">${gApp}${gBatt}${gNet}${gGps}${gSys}</div>
     <div id="segCard"></div>
     ${gMap}
