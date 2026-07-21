@@ -510,6 +510,8 @@ let refreshTimer=null, clockTimer=null;
 // con .remove() y se limpia la referencia. Así sobrevive al auto-refresh de 60s
 // sin duplicar mapas, sin leaks y sin listeners fantasma.
 let fleetMapInstance=null;
+let fleetTileLayer=null;
+let fleetMapView=null; // vista (centro+zoom) recordada, para no re-encuadrar en cada refresco
 
 /* ============================================================
    Utilidades de formato (AR / español / NULL)
@@ -893,7 +895,7 @@ function renderFleet(){
   // Destruir cualquier mapa Leaflet previo ANTES de tocar el DOM: el nodo #fleetMap
   // de un render anterior ya no existe una vez que innerHTML se reasigna más abajo,
   // así que si no liberamos la instancia acá quedaría una referencia colgante.
-  if(fleetMapInstance){ fleetMapInstance.remove(); fleetMapInstance=null; }
+  if(fleetMapInstance){ fleetMapInstance.remove(); fleetMapInstance=null; fleetTileLayer=null; }
 
   const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
 
@@ -1106,7 +1108,7 @@ function renderFleet(){
   // Clic en un KPI/segmento aplica ese filtro; clic en el que ya está activo lo limpia.
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ const k=c.dataset.filter; state.filter=(state.filter===k?"all":k); render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ const k=b.dataset.filter; state.filter=(k==="all"?"all":(state.filter===k?"all":k)); render(); });
-  content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ state.fleetView=b.dataset.view; render(); });
+  content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ fleetMapView=null; state.fleetView=b.dataset.view; render(); });
   const exportBtn=document.getElementById("exportCsvBtn");
   // `list` es el mismo array (filtrado por UG+estado+búsqueda y ordenado) que
   // renderiza la tabla/mapa de este render puntual: closure captura la versión
@@ -1163,15 +1165,32 @@ function serialDisplayOffset(serial){
   return {dLat:radius*Math.sin(angle), dLon:radius*Math.cos(angle)};
 }
 
+// Caja aproximada de Argentina, para el encuadre inicial del mapa: un fix
+// espurio (p.ej. una tablet que reportó en México) no debe alejar toda la vista.
+const AR_BOUNDS = { latMin:-56, latMax:-21, lonMin:-74, lonMax:-53 };
+function inArgentina(lat,lon){
+  return lat>=AR_BOUNDS.latMin && lat<=AR_BOUNDS.latMax && lon>=AR_BOUNDS.lonMin && lon<=AR_BOUNDS.lonMax;
+}
+
+// Tiles del mapa según el tema del dashboard: CARTO Positron (claro) / Dark
+// Matter (oscuro). Basados en OSM, sin API key. Externos, igual que antes — no
+// cambia el panorama de la migración on-prem (el mapa siempre fue externo).
+function makeFleetTileLayer(){
+  const dark = document.documentElement.getAttribute("data-theme")==="dark";
+  const style = dark ? "dark_all" : "light_all";
+  return L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`,{
+    maxZoom:20, subdomains:"abcd",
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  });
+}
+
 function initFleetMap(points){
   const mapEl=document.getElementById("fleetMap");
   if(!mapEl || typeof L==="undefined") return;
 
   const map=L.map("fleetMap");
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    maxZoom:19,
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
+  fleetTileLayer=makeFleetTileLayer();
+  fleetTileLayer.addTo(map);
 
   const group=L.featureGroup();
   const placed=[];
@@ -1210,11 +1229,25 @@ function initFleetMap(points){
   });
   group.addTo(map);
 
-  if(placed.length===1){
-    map.setView([placed[0].dLat,placed[0].dLon],10);
+  if(fleetMapView){
+    // Refresco / re-render estando en el mapa: restaurar la vista del usuario
+    // (no re-encuadrar, así no se "aleja solo" cada ciclo de auto-refresco).
+    map.setView(fleetMapView.center, fleetMapView.zoom);
   }else{
-    map.fitBounds(group.getBounds().pad(0.3));
+    // Primer ingreso al mapa: encuadrar SOLO los puntos dentro de Argentina.
+    // Los outliers (fix espurio) igual se dibujan, pero no deforman la vista.
+    const inAR = placed.filter(p=>inArgentina(p.dLat,p.dLon));
+    const src = inAR.length ? inAR : placed;
+    if(src.length===1){
+      map.setView([src[0].dLat,src[0].dLon],10);
+    }else if(src.length){
+      map.fitBounds(L.latLngBounds(src.map(p=>[p.dLat,p.dLon])).pad(0.3));
+    }else{
+      map.setView([-40,-63],4); // fallback: centro de Argentina
+    }
   }
+  // Recordar la vista para que el próximo re-render (refresco) la preserve.
+  map.on("moveend",()=>{ fleetMapView={center:map.getCenter(), zoom:map.getZoom()}; });
   fleetMapInstance=map;
 }
 
@@ -1863,6 +1896,12 @@ function toggleTheme(){
   const cur=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
   document.documentElement.setAttribute("data-theme",cur);
   localStorage.setItem("flota_theme",cur);
+  // Si el mapa está en pantalla, cambiar los tiles al vuelo (preserva zoom/paneo).
+  if(fleetMapInstance && fleetTileLayer){
+    fleetMapInstance.removeLayer(fleetTileLayer);
+    fleetTileLayer=makeFleetTileLayer();
+    fleetTileLayer.addTo(fleetMapInstance);
+  }
 }
 
 /* ============================================================
