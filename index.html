@@ -284,6 +284,9 @@
   .mapcard iframe{display:block;width:100%;height:260px;border:1px solid var(--border);border-radius:6px}
   .mapcard .maplink{display:inline-block;margin-top:8px;font-size:12.5px}
 
+  .battcond-head{font:600 10px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin:12px 2px 6px;padding-top:10px;border-top:1px solid var(--border)}
+  .battcond-msg{font-size:12.5px;color:var(--faint);padding:2px}
+
   /* ---------- Seguimiento (panel editable + historial) ---------- */
   .seg-body{display:flex;flex-direction:column;gap:12px}
   .seg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 16px}
@@ -1299,6 +1302,8 @@ function renderDetail(){
     ${kv("Enchufe", {t:isNil(r.battery_plugged)?"—":({ac:"AC",usb:"USB",wireless:"Inalámbrico",none:"Desconectada"}[r.battery_plugged]||r.battery_plugged),n:isNil(r.battery_plugged)})}
     ${kv("Temperatura", num(r.battery_temp_c,"°C",1), (r.battery_temp_c!=null&&r.battery_temp_c>45)?"warn":"")}
     ${kv("Voltaje", num(r.battery_voltage_mv,"mV"))}
+    <div class="battcond-head">Condición (últimos días)</div>
+    <div id="battCond"></div>
   </div>`;
   const gNet=`${gh("net","Conectividad")}
     ${kv("Transporte", {t:isNil(r.net_transport)?"—":({wifi:"WiFi",cellular:"Celular",ethernet:"Cable",none:"Sin red",other:"Otro"}[r.net_transport]||r.net_transport),n:isNil(r.net_transport)})}
@@ -1576,10 +1581,49 @@ async function saveSeguimiento(){
 function rangeMs(){ return state.range==="24h"?864e5 : state.range==="7d"?7*864e5 : 30*864e5; }
 const GAP_MIN=35; // umbral de hueco
 
+// Condición de batería (desgaste) a partir del historial ya cargado del detalle.
+// Puro hecho, sin veredicto: descarga %/h (tamiz de desgaste) + temperatura.
+function batteryConditionHtml(history){
+  const h=Array.isArray(history)?history:[];
+  const rows=h.map(d=>{ const dt=toDate(d.received_at); return {t:dt?dt.getTime():null, pct:d.battery_pct, chg:d.battery_charging, temp:d.battery_temp_c}; })
+    .filter(x=>x.t!=null).sort((a,b)=>a.t-b.t);
+  if(rows.length<2) return `<div class="battcond-msg">sin datos suficientes</div>`;
+  // Descarga: tramos desenchufados con % en baja, gap <= 2 h.
+  let dropSum=0, hoursSum=0;
+  for(let i=1;i<rows.length;i++){
+    const a=rows[i-1], b=rows[i];
+    if(a.pct==null||b.pct==null||a.chg===true||b.chg===true) continue;
+    const dh=(b.t-a.t)/3600000;
+    if(dh<=0||dh>2) continue;
+    if(b.pct<a.pct){ dropSum+=(a.pct-b.pct); hoursSum+=dh; }
+  }
+  const disch = hoursSum>0 ? {t:`~${(dropSum/hoursSum).toFixed(1)} %/h (desenchufada)`, n:false} : {t:"—", n:true};
+  // Temperatura: máxima + mediana.
+  const temps=rows.map(x=>x.temp).filter(v=>v!=null);
+  let tMax=null, tMed=null;
+  if(temps.length){
+    tMax=Math.max(...temps);
+    const s=[...temps].sort((x,y)=>x-y), mi=Math.floor(s.length/2);
+    tMed = s.length%2 ? s[mi] : (s[mi-1]+s[mi])/2;
+  }
+  const tcls=v=>v==null?"":(v>45?"crit":v>40?"warn":"");
+  const row=(k,val,bad)=>`<div class="kv ${bad==='crit'?'bad':bad==='warn'?'warn':''}"><span class="k">${k}</span><span class="v ${val.n?'null':''}">${esc(val.t)}</span></div>`;
+  return row("Descarga", disch, "")
+    + row("Temp. máxima", tMax!=null?{t:tMax.toFixed(1)+" °C",n:false}:{t:"—",n:true}, tcls(tMax))
+    + row("Temp. típica", tMed!=null?{t:tMed.toFixed(1)+" °C",n:false}:{t:"—",n:true}, tcls(tMed));
+}
+
+function updateBattCond(){
+  const el=document.getElementById("battCond");
+  if(!el) return;
+  el.innerHTML = state.histLoading ? `<div class="battcond-msg">calculando…</div>` : batteryConditionHtml(state.history);
+}
+
 function renderHistory(){
   const area=document.getElementById("histArea");
   const rawArea=document.getElementById("rawArea");
   if(!area) return;
+  updateBattCond();
   if(state.histLoading){
     // conservar la altura mientras carga para que la pagina no se encoja (scroll estable)
     if(area.offsetHeight>0) area.style.minHeight=area.offsetHeight+"px";
