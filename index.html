@@ -204,6 +204,11 @@
   .grp-hit{font-family:var(--mono);font-size:13px;color:var(--dim)}
   .grp-hit.on{color:var(--crit-text);font-weight:600;background:var(--crit-bg);padding:5px 10px;border-radius:7px}
   .grp-caption{padding:10px 14px 0;font-size:12.5px;color:var(--dim)}
+  .grouptbl tbody tr.grp-row{cursor:pointer}
+  .grouptbl tbody tr.grp-row:hover>td{background:var(--panel2)}
+  .filter-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--accent-text);background:var(--accent-bg);padding:4px 6px 4px 12px;border-radius:20px}
+  .filter-chip .chip-x{border:none;background:transparent;color:var(--accent-text);cursor:pointer;font-size:13px;line-height:1;padding:1px 5px;border-radius:50%;font-family:inherit}
+  .filter-chip .chip-x:hover{background:var(--accent-weak)}
 
   .statuscell{display:flex;align-items:center;gap:9px;min-width:0}
   .tagbadge{font:600 10px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:4px 6px;border-radius:4px;flex:none}
@@ -489,6 +494,7 @@ const state = {
   search:"",
   filter:"all",        // all | critical | warning | ok | stale
   fleetView:"table",   // table | map — vista de la lista de flota
+  groupFilter:null,    // null | {type:'network'|'site', value, catch} — drill-down de vistas agrupadas
   ugFilter:"all",      // all | <UG> | none
   sort:{key:"status", dir:"asc"},
   device:null,
@@ -876,8 +882,8 @@ function groupAffectedCell(g){
   const on=groupFlagged(g);
   return `<span class="grp-hit${on?' on':''}">${on?'⚠ ':''}${g.affected} de ${g.total}</span>`;
 }
-function groupTable(groups, nameHead, affHead, caption){
-  const rows=groups.map(g=>`<tr class="${groupFlagged(g)?'grp-flagged':''}${g.muted?' grp-muted':''}">
+function groupTable(groups, nameHead, affHead, caption, gtype){
+  const rows=groups.map(g=>`<tr class="grp-row ${groupFlagged(g)?'grp-flagged':''}${g.muted?' grp-muted':''}" data-gtype="${gtype}" data-gval="${esc(g.name)}" data-gcatch="${g.muted?'1':''}">
     <td><span class="grp-name mono">${esc(g.name)}</span></td>
     <td style="text-align:right"><span class="mono">${g.total}</span></td>
     <td>${groupSaludCell(g)}</td>
@@ -940,6 +946,14 @@ function renderFleet(){
     }
     return false;
   });
+  const gf=state.groupFilter;
+  if(gf){
+    if(gf.type==="network"){
+      list=list.filter(x=>{ const ssid=(!isNil(x.r.wifi_ssid)&&String(x.r.wifi_ssid).trim()!=="")?String(x.r.wifi_ssid):null; return gf.catch?ssid===null:ssid===gf.value; });
+    }else if(gf.type==="site"){
+      list=list.filter(x=>{ const t=state.trackingMap.get(x.r.device_serial); const yac=(t&&!isNil(t.yacimiento)&&String(t.yacimiento).trim()!=="")?String(t.yacimiento):null; return gf.catch?yac===null:yac===gf.value; });
+    }
+  }
 
   // orden
   const dir=state.sort.dir==="asc"?1:-1;
@@ -977,6 +991,7 @@ function renderFleet(){
       <div class="card kpi-stale clickable ${state.filter==="stale"?"active":""}" data-filter="stale"><div class="kpi-lbl">Sin reportar +1 h</div><div class="kpi-num">${counts.stale}</div></div>
     </div>`;
 
+  const groupChip = gf ? `<span class="filter-chip">${gf.type==="network"?"Red":"Sitio"}: ${esc(gf.value)}<button class="chip-x" id="groupChipClear" type="button" title="Quitar filtro">✕</button></span>` : "";
   const toolbar=`
     <div class="toolbar">
       <div class="search">
@@ -1003,6 +1018,7 @@ function renderFleet(){
         <button data-view="by-network" class="${state.fleetView==="by-network"?"on":""}">Por red</button>
         <button data-view="by-site" class="${state.fleetView==="by-site"?"on":""}">Por sitio</button>
       </div>
+      ${groupChip}
       <button class="iconbtn" id="exportCsvBtn" type="button" title="Descargar CSV de la flota filtrada" ${list.length===0?"disabled":""}>⬇ Exportar</button>
     </div>`;
 
@@ -1040,7 +1056,7 @@ function renderFleet(){
       "Sin red / datos móviles"
     );
     bodyHtml=groupTable(groups, "Red", "Con internet, sin GIS",
-      "Orden: primero las redes con más equipos “con internet pero sin GIS”. “Sin red” junta datos móviles y equipos aún sin la versión que reporta la red.");
+      "Orden: primero las redes con más equipos “con internet pero sin GIS”. “Sin red” junta datos móviles y equipos aún sin la versión que reporta la red.", "network");
   }else if(state.fleetView==="by-site"){
     const groups=groupFleet(
       list,
@@ -1049,7 +1065,7 @@ function renderFleet(){
       "Sin asignar"
     );
     bodyHtml=groupTable(groups, "Sitio", "Sin reportar +2h",
-      "Orden: primero los sitios con más equipos sin reportar. “Sin asignar” junta equipos sin yacimiento cargado en el seguimiento.");
+      "Orden: primero los sitios con más equipos sin reportar. “Sin asignar” junta equipos sin yacimiento cargado en el seguimiento.", "site");
   }else{
     const trs=list.map(({r,s})=>{
       const m=LEVEL_META[s.level];
@@ -1108,6 +1124,12 @@ function renderFleet(){
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ const k=c.dataset.filter; state.filter=(state.filter===k?"all":k); render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ const k=b.dataset.filter; state.filter=(k==="all"?"all":(state.filter===k?"all":k)); render(); });
   content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ fleetMapView=null; state.fleetView=b.dataset.view; render(); });
+  content().querySelectorAll(".grouptbl tbody tr[data-gval]").forEach(tr=>tr.onclick=()=>{
+    state.groupFilter={type:tr.dataset.gtype, value:tr.dataset.gval, catch:tr.dataset.gcatch==="1"};
+    fleetMapView=null; state.fleetView="table"; render();
+  });
+  const gcClear=document.getElementById("groupChipClear");
+  if(gcClear) gcClear.onclick=()=>{ state.groupFilter=null; render(); };
   const exportBtn=document.getElementById("exportCsvBtn");
   // `list` es el mismo array (filtrado por UG+estado+búsqueda y ordenado) que
   // renderiza la tabla/mapa de este render puntual: closure captura la versión
