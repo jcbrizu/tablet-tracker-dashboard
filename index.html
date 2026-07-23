@@ -1208,6 +1208,17 @@ function initFleetMap(points){
 
   const group=L.featureGroup();
   const placed=[];
+  // Orden contextual para el tooltip (yacimiento primero); labels de SEG_FIELDS.
+  const TIP_SEG_ORDER=["yacimiento","usuario_smoc","cuadrilla","proveedor","numero","celular"];
+  function trackingTipRows(serial){
+    const t=state.trackingMap.get(serial);
+    if(!t) return "";
+    const rows=TIP_SEG_ORDER
+      .filter(k=>!isNil(t[k]) && String(t[k]).trim()!=="")
+      .map(k=>`<div class="mtip-row"><span>${esc(SEG_FIELD_LABELS.get(k))}</span><b>${esc(t[k])}</b></div>`);
+    if(!rows.length) return "";
+    return `<div class="mtip-sep"></div>${rows.join("")}`;
+  }
   points.forEach(({r,s,lat,lon})=>{
     const off=serialDisplayOffset(r.device_serial);
     const dLat=lat+off.dLat, dLon=lon+off.dLon;
@@ -1230,6 +1241,7 @@ function initFleetMap(points){
       `<div class="mtip">
          <div class="mtip-name">${nameHtml}</div>
          <div class="mtip-status">${esc(m.word)}: ${esc(s.main)}</div>
+         ${trackingTipRows(r.device_serial)}
          <div class="mtip-sep"></div>
          <div class="mtip-row"><span>Red WiFi</span><b>${ssidTxt}</b></div>
          <div class="mtip-row"><span>Señal</span><b>${esc(sigTxt)}</b></div>
