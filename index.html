@@ -664,6 +664,7 @@ const FIELD_TIP = {
   points_sent_48h:"Puntos enviados con éxito en las últimas 48 horas. No es un total histórico: es una ventana móvil de 48 h.",
   battery_opt_exempt:"Android puede «dormir» apps para ahorrar batería. Si está exenta, el sistema no la frena y sigue capturando y enviando en segundo plano.",
   power_save:"El modo de ahorro de batería del dispositivo está activo. Puede limitar lo que la app hace en segundo plano.",
+  battery_health:"Diagnóstico de salud de la batería que reporta Android. «Buena» es lo normal; «Sobrecalentamiento», «Muerta», «Sobrevoltaje» o «Falla» indican un problema físico de la batería. Vacío si el equipo no lo informa.",
   managed_config:"La app recibió su configuración de empresa (endpoint, intervalo, credenciales) vía Intune. Si dice No, puede no saber a dónde ni cómo enviar.",
   last_heartbeat_srv:"Momento en que el servidor recibió el último latido de salud de esta tablet.",
   device_clock:"Hora del reloj interno de la tablet en su último latido. Si difiere mucho del latido de servidor, el reloj puede estar desajustado.",
@@ -1314,6 +1315,7 @@ function renderDetail(){
     ${kv("Enchufe", {t:isNil(r.battery_plugged)?"—":({ac:"AC",usb:"USB",wireless:"Inalámbrico",none:"Desconectada"}[r.battery_plugged]||r.battery_plugged),n:isNil(r.battery_plugged)})}
     ${kv("Temperatura", num(r.battery_temp_c,"°C",1), (r.battery_temp_c!=null&&r.battery_temp_c>45)?"warn":"")}
     ${kv("Voltaje", num(r.battery_voltage_mv,"mV"))}
+    ${kv("Salud", {t:isNil(r.battery_health)?"—":(String(r.battery_health).charAt(0).toUpperCase()+String(r.battery_health).slice(1)), n:isNil(r.battery_health)}, (r.battery_health!=null&&r.battery_health!=="buena"&&r.battery_health!=="fría")?"warn":"", FIELD_TIP.battery_health)}
     <div class="battcond-head">Condición (últimos días)</div>
     <div id="battCond"></div>
   </div>`;
