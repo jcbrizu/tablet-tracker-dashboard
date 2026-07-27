@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Monitoreo de flota · Tablets de campo</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css" integrity="sha384-NZLkVuBRMEeB4VeZz27WwTRvlhec30biQ8Xx7zG7JJnkvEKRg5qi6BNbEXo9ydwv" crossorigin="anonymous" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -222,6 +223,14 @@
   .trackchips{display:flex;gap:7px;flex-wrap:wrap}
   .tchip{font-size:11.5px;color:var(--text);background:var(--chip);padding:3px 10px;border-radius:20px}
   .tchip .k{color:var(--faint)}
+
+  .sitbadge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+  .sit-base{background:#e0edff;color:#1e40af}
+  .sit-loc{background:#dcfce7;color:#166534}
+  .sit-transito{background:#f1f5f9;color:#475569}
+  html[data-theme="dark"] .sit-base{background:#1e3a5f;color:#bfdbfe}
+  html[data-theme="dark"] .sit-loc{background:#14532d;color:#bbf7d0}
+  html[data-theme="dark"] .sit-transito{background:#334155;color:#cbd5e1}
 
   /* ---------- Badge (pill · usado en el detalle) ---------- */
   .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:20px;font-size:13px;font-weight:600;line-height:1.4}
@@ -467,8 +476,22 @@
 </div>
 <div id="histTip"></div>
 
+<div id="zoneModal" class="hidden" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4)">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;width:320px">
+    <h3 style="margin:0 0 12px;font-size:15px">Nueva geocerca</h3>
+    <input id="zoneName" type="text" placeholder="Nombre (ej. Base Norte)" style="width:100%;margin-bottom:12px;padding:8px" />
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button id="zoneBase" class="btn-primary" style="flex:1">Base</button>
+      <button id="zoneLoc" class="btn-primary" style="flex:1">Locación</button>
+    </div>
+    <button id="zoneCancel" style="width:100%">Cancelar</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.3/dist/umd/supabase.js" integrity="sha384-sihuiVHG7vyEIuePVbLI4QpHu1dbhCZe4Zqp0FuqnFeEnyIhF3koyXoBZyfbFsYs" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js" integrity="sha384-JP5UPxIO2Tm2o79Fb0tGYMa44jkWar53aBoCbd8ah0+LcCDoohTIYr+zIXyfGIJN" crossorigin="anonymous"></script>
+<script src="geofence.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -509,6 +532,7 @@ const state = {
   trackingMap:new Map(), // device_serial -> fila de device_tracking (para la tabla de flota)
   tracking:null,        // fila de device_tracking del device abierto (o null si no existe aún)
   trackingHistory:null, // null=cargando, [] =sin historial, array=filas de device_tracking_history
+  geofences:[],          // filas de public.geofences (id,name,kind,polygon) para estado por geocerca
 };
 let refreshTimer=null, clockTimer=null;
 // Instancia única de Leaflet para la vista Mapa de la flota. render() reconstruye
@@ -641,6 +665,20 @@ const LEVEL_META={
   warning:{cls:"warn",word:"Observación",ic:"!"},
   ok:{cls:"ok",word:"OK",ic:"✓"},
 };
+
+const SIT_META = {
+  en_base:     { label: "En base",     cls: "sit-base" },
+  en_locacion: { label: "En locación", cls: "sit-loc" },
+  en_transito: { label: "En tránsito", cls: "sit-transito" },
+};
+// Estado operativo por geocerca. null = no aplica (sin zonas, sin señal reciente, o sin coords).
+function situacionOf(r, s) {
+  if (!state.geofences || !state.geofences.length) return null;
+  if (s && s.ageMin != null && s.ageMin > 60) return null; // sin reportar +1h → no se calcula
+  const g = Geofence.deviceGeoState(r, state.geofences);
+  if (!g.state) return null;
+  return { state: g.state, zoneName: g.zoneName, ...SIT_META[g.state] };
+}
 
 // Vistas agrupadas (Por red / Por sitio): umbral de la bandera ⚠ y silencio.
 const GROUP_FLAG_MIN = 2;   // mínimo de equipos afectados para encender la ⚠
@@ -1088,6 +1126,7 @@ function renderFleet(){
       }
       const hasSeg=chips.length>0;
       const ghost = hasSeg?"":`<span class="seg-ghost">＋ Seguimiento</span>`;
+      const sit = situacionOf(r, s);
       const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}${hasSeg?"":" solo"}">
         <td><div class="serialcell"><span class="serial">${esc(r.device_serial||"—")}</span>${dname?`<span class="serial-name">${esc(dname)}</span>`:""}</div></td>
         <td><div class="statuscell">
@@ -1095,6 +1134,7 @@ function renderFleet(){
           <span class="motivo${s.level==="ok"?" ok":""}">${esc(s.main)}</span>
           ${ghost}
         </div></td>
+        <td>${sit ? `<span class="sitbadge ${sit.cls}">${sit.label}</span>` : "—"}</td>
         <td>${s.recv?`<span class="mono" style="font-size:12.5px;color:var(--dim)">${relTime(s.recv)}</span>`:'<span class="faint">sin dato</span>'}</td>
         <td><span class="batt">${batteryBar(r.battery_pct,r.battery_charging)}</span></td>
         <td class="pendcell" style="text-align:right"><span class="${pcls}">${r.points_pending==null?"—":r.points_pending}</span></td>
@@ -1102,7 +1142,7 @@ function renderFleet(){
         <td class="wificell">${r.wifi_ssid?'<span class="mono" style="font-size:12px;color:var(--dim)">'+esc(r.wifi_ssid)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
       const rowB = hasSeg
-        ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="7" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
+        ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="8" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
         : "";
       return rowA+rowB;
     }).join("");
@@ -1111,6 +1151,7 @@ function renderFleet(){
       <thead><tr>
         <th class="sortable" data-sort="serial">Serial ${arrow("serial")}</th>
         <th class="sortable" data-sort="status">Estado y motivo ${arrow("status")}</th>
+        <th>Situación</th>
         <th class="sortable" data-sort="signal">Última señal ${arrow("signal")}</th>
         <th class="sortable" data-sort="battery">Batería ${arrow("battery")}</th>
         <th class="sortable" data-sort="pending" style="text-align:right">Pend. ${arrow("pending")}</th>
@@ -1238,6 +1279,10 @@ function initFleetMap(points){
     else if(r.net_transport==="ethernet") sigTxt = "Cable";
     else sigTxt = "Sin red";
     const relSig = s.recv ? esc(relTime(s.recv)) : "sin dato";
+    // El objeto del punto del mapa puede no ser la fila completa de state.fleet:
+    // resolverla antes de calcular la situación (null-safe si no se encuentra).
+    const fleetRowT = state.fleet.find(x=>x.device_serial===r.device_serial);
+    const sitT = fleetRowT ? situacionOf(fleetRowT, s) : null;
     marker.bindTooltip(
       `<div class="mtip">
          <div class="mtip-name">${nameHtml}</div>
@@ -1247,6 +1292,7 @@ function initFleetMap(points){
          <div class="mtip-row"><span>Red WiFi</span><b>${ssidTxt}</b></div>
          <div class="mtip-row"><span>Señal</span><b>${esc(sigTxt)}</b></div>
          <div class="mtip-row"><span>Última señal</span><b>${relSig}</b></div>
+         ${sitT ? `<div>Situación: <span class="sitbadge ${sitT.cls}">${esc(sitT.label)}</span></div>` : ""}
        </div>`,
       {direction:"top", offset:[0,-10], className:"fleet-tip"}
     );
@@ -1255,6 +1301,38 @@ function initFleetMap(points){
     placed.push({dLat,dLon});
   });
   group.addTo(map);
+
+  if (!state.demo) {
+    const zoneLayer = new L.FeatureGroup();
+    map.addLayer(zoneLayer);
+    // Pintar zonas guardadas
+    (state.geofences || []).forEach((g) => {
+      const ring = (g.polygon && g.polygon[0]) || [];
+      const latlngs = ring.map((c) => [c[1], c[0]]); // [lng,lat] -> [lat,lng]
+      const poly = L.polygon(latlngs, {
+        color: g.kind === "locacion" ? "#166534" : "#1e40af", weight: 2, fillOpacity: 0.12,
+      });
+      poly._geofenceId = g.id;
+      poly.bindTooltip(esc(g.name));
+      poly.addTo(zoneLayer);
+    });
+    // Control de dibujo
+    const drawControl = new L.Control.Draw({
+      edit: { featureGroup: zoneLayer, remove: true },
+      draw: { polygon: true, marker: false, polyline: false, rectangle: false, circle: false, circlemarker: false },
+    });
+    map.addControl(drawControl);
+    map.on(L.Draw.Event.CREATED, (e) => {
+      const ring = layerToRing(e.layer);
+      openZoneModal((name, kind) => saveNewZone(ring, name, kind));
+    });
+    map.on(L.Draw.Event.EDITED, (e) => {
+      e.layers.eachLayer((layer) => { if (layer._geofenceId) updateZoneGeometry(layer._geofenceId, layerToRing(layer)); });
+    });
+    map.on(L.Draw.Event.DELETED, (e) => {
+      e.layers.eachLayer((layer) => { if (layer._geofenceId) deleteZone(layer._geofenceId); });
+    });
+  }
 
   if(fleetMapView){
     // Refresco / re-render estando en el mapa: restaurar la vista del usuario
@@ -1330,12 +1408,14 @@ function renderDetail(){
   const zoneLat = isNil(r.last_fix_lat_approx)?null:Number(r.last_fix_lat_approx);
   const zoneLon = isNil(r.last_fix_lon_approx)?null:Number(r.last_fix_lon_approx);
   const hasZone = zoneLat!=null && zoneLon!=null && isFinite(zoneLat) && isFinite(zoneLon);
+  const sitD = situacionOf(r, s);
   const gGps=`${gh("gps","GPS / Ubicación")}
     ${kv("Ubicación activada", boolTxt(r.location_enabled), r.location_enabled===false?"crit":"", FIELD_TIP.location_enabled)}
     ${kv("Permiso de ubicación", boolTxt(r.location_permission_ok), r.location_permission_ok===false?"crit":"", FIELD_TIP.location_perm)}
     ${kv("Precisión último punto", num(r.last_fix_accuracy_m,"m"), "", FIELD_TIP.fix_accuracy)}
     ${kv("Antigüedad último punto", {t:fmtDur(r.last_fix_age_s),n:isNil(r.last_fix_age_s)}, "", FIELD_TIP.fix_age)}
     ${kv("Zona aproximada", hasZone?{t:zoneLat.toFixed(2)+", "+zoneLon.toFixed(2),n:false}:{t:"—",n:true})}
+    ${kv("Situación", {t:sitD?sitD.label:"—", n:!sitD}, "", "Estado operativo según las geocercas dibujadas: en base, en locación o en tránsito. Requiere señal reciente.")}
   </div>`;
   let gMap="";
   if(hasZone){
@@ -1870,7 +1950,7 @@ async function loadFleet(silent){
     if(!silent) showBanner("No se pudieron cargar los datos de la flota. "+(e.message||""),"err");
   }
   loadDeviceNames();
-  loadTrackingMap();
+  await Promise.all([loadTrackingMap(), loadGeofences()]);
 }
 
 async function loadDeviceNames(){
@@ -1906,6 +1986,42 @@ async function loadTrackingMap(){
   }catch(e){
     console.warn("No se pudo cargar Seguimiento de la flota:",e);
   }
+}
+
+async function loadGeofences() {
+  if (state.demo || !sb) { state.geofences = []; render(); return; }
+  try {
+    const { data, error } = await sb.from("geofences").select("id,name,kind,polygon");
+    if (error) throw error;
+    state.geofences = data || [];
+  } catch (e) {
+    console.warn("No se pudieron cargar geocercas:", e.message || e);
+    state.geofences = [];
+  }
+  render();
+}
+
+async function saveNewZone(coordsLngLat, name, kind) {
+  const { error } = await sb.from("geofences").insert({ name, kind, polygon: [coordsLngLat] });
+  if (error) { showBanner("No se pudo guardar la geocerca: " + error.message, "err"); return; }
+  await loadGeofences();
+}
+async function updateZoneGeometry(id, coordsLngLat) {
+  const { error } = await sb.from("geofences").update({ polygon: [coordsLngLat] }).eq("id", id);
+  if (error) { showBanner("No se pudo actualizar la geocerca: " + error.message, "err"); render(); return; }
+  await loadGeofences();
+}
+async function deleteZone(id) {
+  const { error } = await sb.from("geofences").delete().eq("id", id);
+  if (error) { showBanner("No se pudo borrar la geocerca: " + error.message, "err"); render(); return; }
+  await loadGeofences();
+}
+// Convierte los latlngs de un layer de Leaflet a anillo GeoJSON cerrado [[lng,lat],...]
+function layerToRing(layer) {
+  const ll = layer.getLatLngs()[0];
+  const ring = ll.map((p) => [p.lng, p.lat]);
+  ring.push([ring[0][0], ring[0][1]]); // cerrar
+  return ring;
 }
 
 async function loadHistory(){
@@ -2155,6 +2271,29 @@ document.addEventListener("pointermove",ev=>{
   if(!svg){ histHideCross(); return; }
   histShowTip(ev,histPxToT(svg,ev.clientX));
 });
+
+/* ============================================================
+   Modal de geocerca (nombre + tipo) — listeners una única vez
+   ============================================================ */
+let zoneModalCb = null;
+function openZoneModal(cb) {
+  zoneModalCb = cb;
+  document.getElementById("zoneName").value = "";
+  document.getElementById("zoneModal").classList.remove("hidden");
+}
+function closeZoneModal() {
+  document.getElementById("zoneModal").classList.add("hidden");
+  zoneModalCb = null;
+}
+document.getElementById("zoneCancel").addEventListener("click", closeZoneModal);
+function pickKind(kind) {
+  const name = (document.getElementById("zoneName").value || "").trim();
+  if (!name) { document.getElementById("zoneName").focus(); return; }
+  const cb = zoneModalCb; closeZoneModal();
+  if (cb) cb(name, kind);
+}
+document.getElementById("zoneBase").addEventListener("click", () => pickKind("base"));
+document.getElementById("zoneLoc").addEventListener("click", () => pickKind("locacion"));
 
 /* ============================================================
    Arranque: revisar sesión existente
