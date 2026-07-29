@@ -307,6 +307,11 @@
   .seg-actions .btn-primary{width:auto;padding:0 18px;height:34px}
   .seg-msg{font-size:12.5px;min-height:16px}
   .seg-caption{font-size:11.5px;color:var(--dim)}
+  .seg-piloto{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
+  .seg-piloto input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .seg-piloto label{cursor:pointer;user-select:none}
+  .seg-piloto input:disabled{cursor:not-allowed;opacity:.5}
+  .seg-piloto .seg-msg{margin-left:auto}
   .seg-hist-list{max-height:260px;overflow:auto}
   .seg-hist-item{padding:8px 13px;border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.5}
   .seg-hist-item:last-child{border-bottom:none}
@@ -522,6 +527,7 @@ const state = {
   fleetView:"table",   // table | map — vista de la lista de flota
   groupFilter:null,    // null | {type:'network'|'site', value, catch} — drill-down de vistas agrupadas
   ugFilter:"all",      // all | <UG> | none
+  pilotoOnly:false,    // true = mostrar sólo equipos marcados como piloto (device_tracking.es_piloto)
   sort:{key:"status", dir:"asc"},
   device:null,
   range:"24h",         // 24h | 7d | 30d
@@ -991,6 +997,7 @@ function renderFleet(){
     }
     return false;
   });
+  if(state.pilotoOnly) list=list.filter(x=>state.trackingMap.get(x.r.device_serial)?.es_piloto===true);
   const gf=state.groupFilter;
   if(gf){
     if(gf.type==="network"){
@@ -1048,6 +1055,9 @@ function renderFleet(){
         <button data-filter="critical" class="${state.filter==="critical"?"on":""}"><span class="dot dot-crit"></span>Atención</button>
         <button data-filter="warning" class="${state.filter==="warning"?"on":""}"><span class="dot dot-warn"></span>Observación</button>
         <button data-filter="ok" class="${state.filter==="ok"?"on":""}"><span class="dot dot-ok"></span>OK</button>
+      </div>
+      <div class="segmented" id="pilotoSeg">
+        <button class="${state.pilotoOnly?"on":""}" type="button">Piloto</button>
       </div>
       <div class="ugfilter">
         <label for="ugFilterSelect">UG</label>
@@ -1171,6 +1181,7 @@ function renderFleet(){
   // Clic en un KPI/segmento aplica ese filtro; clic en el que ya está activo lo limpia.
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ const k=c.dataset.filter; state.filter=(state.filter===k?"all":k); render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ const k=b.dataset.filter; state.filter=(k==="all"?"all":(state.filter===k?"all":k)); render(); });
+  content().querySelectorAll("#pilotoSeg button").forEach(b=>b.onclick=()=>{ state.pilotoOnly=!state.pilotoOnly; render(); });
   content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ fleetMapView=null; state.fleetView=b.dataset.view; render(); });
   content().querySelectorAll(".grouptbl tbody tr[data-gval]").forEach(tr=>tr.onclick=()=>{
     state.groupFilter={type:tr.dataset.gtype, value:tr.dataset.gval, catch:tr.dataset.gcatch==="1"};
@@ -1571,9 +1582,15 @@ function seguimientoCardHtml(){
     <input id="seg_${f.key}" data-field="${f.key}" type="text" autocomplete="off" value="${esc(seguimientoFieldValue(f.key))}" />
   </div>`).join("");
   const caption = (t && t.updated_by) ? `<div class="seg-caption">Última edición: ${esc(t.updated_by)} · ${esc(fmtDateTime(toDate(t.updated_at)))}</div>` : "";
+  const pilotoDisabled=(state.demo || !sb);
   return `<div class="mapcard">
     <h3>Seguimiento</h3>
     <div class="mapbody seg-body">
+      <div class="seg-piloto">
+        <input type="checkbox" id="segPilotoToggle" ${(t && t.es_piloto)?"checked":""} ${pilotoDisabled?"disabled":""} />
+        <label for="segPilotoToggle">¿Es piloto?</label>
+        <span id="segPilotoMsg" class="seg-msg dim"></span>
+      </div>
       <div class="seg-grid">${fieldsHtml}</div>
       <div class="seg-actions">
         <button class="btn-primary" id="segSaveBtn" type="button">Guardar</button>
@@ -1609,6 +1626,8 @@ function renderSeguimiento(){
   });
   const saveBtn=document.getElementById("segSaveBtn");
   if(saveBtn) saveBtn.onclick=saveSeguimiento;
+  const pilotoToggle=document.getElementById("segPilotoToggle");
+  if(pilotoToggle) pilotoToggle.onchange=()=>savePiloto(state.device, pilotoToggle.checked);
 
   if(focusField){
     const el=card.querySelector(`input[data-field="${focusField}"]`);
@@ -1639,6 +1658,27 @@ async function loadTracking(){
     if(state.device===serial && state.trackingHistory==null) state.trackingHistory=[];
   }
   if(state.view==="detail") renderSeguimiento();
+}
+
+// Toggle "¿Es piloto?": guarda solo, sin pasar por el botón "Guardar" (que es
+// para los 6 campos de texto). Upsert con {device_serial, es_piloto} nada más,
+// para no pisar yacimiento/cuadrilla/etc. si el registro ya existe.
+async function savePiloto(serial, value){
+  if(state.demo || !sb) return;
+  const toggle=document.getElementById("segPilotoToggle");
+  const msgEl=document.getElementById("segPilotoMsg");
+  if(toggle) toggle.disabled=true;
+  if(msgEl) msgEl.textContent="Guardando…";
+  const { error } = await sb.from("device_tracking").upsert({ device_serial: serial, es_piloto: value }, { onConflict: "device_serial" });
+  if(error){
+    showBanner("No se pudo guardar el flag piloto: "+error.message, "err");
+    if(toggle){ toggle.disabled=false; toggle.checked=!value; }
+    if(msgEl) msgEl.textContent="";
+    return;
+  }
+  if(state.device===serial && state.tracking) state.tracking.es_piloto = value;
+  const m = state.trackingMap.get(serial); if(m) m.es_piloto = value; else state.trackingMap.set(serial, { device_serial: serial, es_piloto: value });
+  if(state.device===serial){ await loadTracking(); } else { render(); }
 }
 
 async function saveSeguimiento(){
@@ -1983,7 +2023,7 @@ async function loadTrackingMap(){
     const serials=(state.fleet||[]).map(r=>r.device_serial).filter(Boolean);
     if(!serials.length) return;
     const {data,error}=await sb.from("device_tracking")
-      .select("device_serial,usuario_smoc,cuadrilla,numero,yacimiento,proveedor,celular")
+      .select("device_serial,usuario_smoc,cuadrilla,numero,yacimiento,proveedor,celular,es_piloto")
       .in("device_serial",serials);
     if(error) throw error;
     state.trackingMap=new Map((data||[]).map(d=>[d.device_serial,d]));
