@@ -718,6 +718,7 @@ const FIELD_TIP = {
   cell_level:"Barras de señal de datos móviles, de 0 (sin señal) a 4 (máxima).",
   sim_present:"Si el equipo tiene una SIM lista. Lo lee del equipo, no se carga a mano.",
   sim_carrier:"Operadora de la SIM del equipo (leída del equipo).",
+  sim_slot:"Si el equipo tiene ranura para SIM / hardware celular (leído del equipo, sin permiso). 'No' = es WiFi-only y no puede usar datos móviles.",
   location_enabled:"El GPS del dispositivo está encendido a nivel sistema.",
   location_perm:"La app tiene concedido el permiso para usar la ubicación. Puede estar el GPS encendido pero la app sin permiso.",
   fix_accuracy:"Radio de error estimado del último punto GPS. Menos metros = más preciso (10 m es muy bueno; 100 m es pobre).",
@@ -792,7 +793,7 @@ function intervalSecsOf(r){
   return {eff,intune};
 }
 function fmtIntervalS(s){ return s%60===0?(s/60)+" min":s+" s"; }
-const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (s)","Intervalo Intune (s)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon","SIM","Operadora"];
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (s)","Intervalo Intune (s)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon","SIM","Operadora","Ranura SIM"];
 function fleetRowToCsvCols({r,s}){
   const dname=state.deviceNames.get(r.device_serial);
   const trk=state.trackingMap.get(r.device_serial);
@@ -818,6 +819,7 @@ function fleetRowToCsvCols({r,s}){
     isNil(r.last_fix_lat_approx)?"":r.last_fix_lat_approx,
     isNil(r.last_fix_lon_approx)?"":r.last_fix_lon_approx,
     isNil(r.sim_present)?"":(r.sim_present?"Sí":"No"), isNil(r.sim_carrier)?"":r.sim_carrier,
+    isNil(r.sim_slot)?"":(r.sim_slot?"Sí":"No"),
   ];
 }
 function exportFleetCsv(list){
@@ -1419,6 +1421,7 @@ function renderDetail(){
     ${kv("Señal celular", isNil(r.cell_level)?{t:"—",n:true}:{t:r.cell_level+" / 4",n:false}, "", FIELD_TIP.cell_level)}
     ${kv("SIM", isNil(r.sim_present)?{t:"—",n:true}:{t:(r.sim_present?"Sí":"No"),n:false}, "", FIELD_TIP.sim_present)}
     ${kv("Operadora", {t:isNil(r.sim_carrier)?"—":r.sim_carrier, n:isNil(r.sim_carrier)}, "", FIELD_TIP.sim_carrier)}
+    ${kv("Ranura SIM", isNil(r.sim_slot)?{t:"—",n:true}:{t:(r.sim_slot?"Sí":"No"),n:false}, "", FIELD_TIP.sim_slot)}
     ${kv("Modo avión", boolTxt(r.airplane_mode), r.airplane_mode===true?"crit":"")}
   </div>`;
   const zoneLat = isNil(r.last_fix_lat_approx)?null:Number(r.last_fix_lat_approx);
@@ -2410,7 +2413,7 @@ function demoFleet(){
       last_fix_age_s: locEnabled? Math.round(rnd()*1800): null,
       last_fix_lat_approx: locEnabled&&rnd()<0.85? Math.round((-38-rnd()*15)*100)/100 : null,
       last_fix_lon_approx: locEnabled&&rnd()<0.85? Math.round((-58-rnd()*12)*100)/100 : null,
-      sim_present: rnd()<0.9, sim_carrier: "Movistar",
+      sim_present: rnd()<0.9, sim_carrier: "Movistar", sim_slot: rnd()<0.6,
       storage_free_mb: storageFree, storage_total_mb: 64000, ram_free_mb: Math.round(400+rnd()*2600),
       ram_low: rnd()<0.06, boot_time: now - Math.round(rnd()*10)*864e5,
       android_version: rnd()<0.5?"13":"12", security_patch:"2026-05-01",
