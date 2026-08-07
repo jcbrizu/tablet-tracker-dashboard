@@ -497,6 +497,7 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js" integrity="sha384-JP5UPxIO2Tm2o79Fb0tGYMa44jkWar53aBoCbd8ah0+LcCDoohTIYr+zIXyfGIJN" crossorigin="anonymous"></script>
 <script src="geofence.js"></script>
+<script src="ug.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -563,13 +564,10 @@ const dayTimeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",mont
 function isNil(v){ return v===null||v===undefined||v===""; }
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
-// Extrae la Unidad de Gestión (UG) codificada en el nombre del device:
-// "TAB GSJ PETROSAR CP2216..." -> "GSJ". Nombres que no matchean -> null.
-function ugOf(name){
-  if(isNil(name)) return null;
-  const m=String(name).trim().match(/^TAB\s+([A-ZÑÁÉÍÓÚ0-9]{2,5})\b/i);
-  return m ? m[1].toUpperCase() : null;
-}
+// Extrae la Unidad de Gestión (UG) del nombre del device. La lógica vive en
+// ug.js (con tests en ug.test.js): busca la primera UG conocida entre los
+// tokens del nombre, en vez de asumir que es el token que sigue a "TAB".
+function ugOf(name){ return UG.ugOf(name); }
 
 function toDate(v){ // timestamptz string
   if(isNil(v)) return null;
@@ -1066,7 +1064,7 @@ function renderFleet(){
         <select id="ugFilterSelect">
           <option value="all" ${state.ugFilter==="all"?"selected":""}>Todas</option>
           ${ugList.map(ug=>`<option value="${esc(ug)}" ${state.ugFilter===ug?"selected":""}>${esc(ug)} (${ugCounts.get(ug)})</option>`).join("")}
-          ${ugNoneCount>0?`<option value="none" ${state.ugFilter==="none"?"selected":""}>Sin UG (${ugNoneCount})</option>`:""}
+          ${ugNoneCount>0?`<option value="none" ${state.ugFilter==="none"?"selected":""}>Sin UG — revisar nombre (${ugNoneCount})</option>`:""}
         </select>
       </div>
       <div class="segmented" id="viewSeg">
