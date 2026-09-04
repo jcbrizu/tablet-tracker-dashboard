@@ -692,10 +692,11 @@ const SILENCE_MIN = 120;    // "sin reportar +2h" en minutos
 
 // Códigos de error de envío (last_sync_error) → etiqueta corta + explicación en
 // lenguaje llano para el tooltip. Los códigos los emite el worker de sync de la app.
-const SYNC_ERR_LABEL = {partial_failure:"Falla parcial", auth_failure:"Falla de autenticación"};
+const SYNC_ERR_LABEL = {partial_failure:"Falla parcial", auth_failure:"Falla de autenticación", rate_limited:"Pausa por pedido del GIS"};
 const SYNC_ERR_TIP = {
   partial_failure:"La app envió algunos puntos al GIS pero otros quedaron en cola. Reintenta los que faltan en el próximo ciclo.",
   auth_failure:"El GIS rechazó las credenciales de la app, así que no pudo enviar. Suele ser un token o certificado vencido o mal configurado.",
+  rate_limited:"El GIS pidió bajar el ritmo de envío y la app hizo una pausa corta. Los puntos quedan guardados y se reintentan solos; no requiere acción.",
 };
 const SYNC_ERR_TIP_GENERIC = "La app registró un error al intentar enviar al GIS. Ver «Detalle del error» abajo si hay más información.";
 
