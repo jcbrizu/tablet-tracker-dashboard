@@ -223,6 +223,7 @@
   .trackchips{display:flex;gap:7px;flex-wrap:wrap}
   .tchip{font-size:11.5px;color:var(--text);background:var(--chip);padding:3px 10px;border-radius:20px}
   .tchip .k{color:var(--faint)}
+  .tchip-smoc .k{color:var(--accent)}
 
   .sitbadge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
   .sit-base{background:#e0edff;color:#1e40af}
@@ -655,6 +656,7 @@ function evalStatus(r){
   // null (sin dato de carga) se trata como "no cargando": preferimos falsa alarma a alerta perdida
   if(r.battery_pct!=null && r.battery_pct<30 && r.battery_charging!==true) warning.push("Batería "+r.battery_pct+"% (sin cargar)");
   if(r.battery_temp_c!=null && r.battery_temp_c>45) warning.push("Batería caliente ("+Math.round(r.battery_temp_c)+"°C)");
+  if(r.smoc_endpoint_ok===false) warning.push("Servicio SMOC no disponible");
 
   let level="ok", reasons=[];
   if(critical.length){ level="critical"; reasons=critical; }
@@ -717,6 +719,10 @@ const FIELD_TIP = {
   sim_present:"Si el equipo tiene una SIM lista. Lo lee del equipo, no se carga a mano.",
   sim_carrier:"Operadora de la SIM del equipo (leída del equipo).",
   sim_slot:"Si el equipo tiene ranura para SIM / hardware celular (leído del equipo, sin permiso). 'No' = es WiFi-only y no puede usar datos móviles.",
+  smoc_cuadrilla:"Cuadrilla que hizo login en SMOC en esta tablet. Lo manda SMOC a Tracker dentro del mismo equipo; no se carga a mano y no reemplaza la cuadrilla del seguimiento.",
+  smoc_patente:"Patente del vehículo declarada por la cuadrilla en el login de SMOC. Rige hasta el próximo login en esta tablet.",
+  smoc_login_at:"Fecha y hora del login en SMOC desde el que rige la relación cuadrilla-patente.",
+  smoc_endpoint_ok:"Si el servicio local con el que SMOC le escribe a Tracker pudo arrancar en la tablet. 'No' suele ser otro programa usando el mismo puerto.",
   location_enabled:"El GPS del dispositivo está encendido a nivel sistema.",
   location_perm:"La app tiene concedido el permiso para usar la ubicación. Puede estar el GPS encendido pero la app sin permiso.",
   fix_accuracy:"Radio de error estimado del último punto GPS. Menos metros = más preciso (10 m es muy bueno; 100 m es pobre).",
@@ -759,6 +765,9 @@ function diagnose(r,s){
   if(/restringida/i.test(m))
     return {culprit:"app", explain:"El sistema restringió la app en segundo plano: puede no capturar ni enviar hasta que se la vuelva a permitir.",
       chips:[P("App en 2.º plano","Restringida",true),P("Puntos pendientes",pend,false)]};
+  if(/^Servicio SMOC/.test(m))
+    return {culprit:"veh", explain:"El servicio local con el que SMOC le escribe a Tracker no pudo arrancar en la tablet. La geolocalización sigue funcionando; solo falta la relación cuadrilla-patente. Suele ser otro programa usando el mismo puerto.",
+      chips:[P("Servicio local","No",true),P("Última señal",tm,false)]};
   // "No pudo enviar al GIS" / "N puntos sin enviar" y demás de app
   return {culprit:"app", explain:"El último envío no llegó al GIS y hay "+pend+" puntos acumulados sin enviar.",
     chips:[P("Último envío OK","No",true),P("Puntos pendientes",pend,true),P("Última señal",tm,false)]};
@@ -791,7 +800,7 @@ function intervalSecsOf(r){
   return {eff,intune};
 }
 function fmtIntervalS(s){ return s%60===0?(s/60)+" min":s+" s"; }
-const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (s)","Intervalo Intune (s)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon","SIM","Operadora","Ranura SIM"];
+const CSV_HEADERS=["Serial","Nombre","UG","Estado","Motivo","Última señal","Versión","Android","Parche de seguridad","Batería %","Cargando","Puntos pendientes","Intervalo (s)","Intervalo Intune (s)","Último envío OK","Detalle error","Cuadrilla","Yacimiento","Proveedor","Número","Celular","Usuario SMOC","Zona lat","Zona lon","SIM","Operadora","Ranura SIM","Cuadrilla SMOC","Patente SMOC","Login SMOC","Servicio SMOC"];
 function fleetRowToCsvCols({r,s}){
   const dname=state.deviceNames.get(r.device_serial);
   const trk=state.trackingMap.get(r.device_serial);
@@ -818,6 +827,8 @@ function fleetRowToCsvCols({r,s}){
     isNil(r.last_fix_lon_approx)?"":r.last_fix_lon_approx,
     isNil(r.sim_present)?"":(r.sim_present?"Sí":"No"), isNil(r.sim_carrier)?"":r.sim_carrier,
     isNil(r.sim_slot)?"":(r.sim_slot?"Sí":"No"),
+    isNil(r.smoc_cuadrilla)?"":r.smoc_cuadrilla, isNil(r.smoc_patente)?"":r.smoc_patente,
+    isNil(r.smoc_login_at)?"":fmtEpoch(r.smoc_login_at), boolSiNo(r.smoc_endpoint_ok),
   ];
 }
 function exportFleetCsv(list){
@@ -1170,7 +1181,8 @@ function renderFleet(){
         add("Cuadrilla","cuadrilla"); add("Yacimiento","yacimiento"); add("Proveedor","proveedor");
         add("Nº","numero"); add("Cel","celular"); add("SMOC","usuario_smoc");
       }
-      const hasSeg=chips.length>0;
+      const hasSeg=chips.length>0; // ficha manual (trk): gobierna el ghost "＋ Seguimiento" y la clase "solo"
+      if(!isNil(r.smoc_patente)) chips.push(`<span class="tchip tchip-smoc" title="${esc(FIELD_TIP.smoc_patente)}"><span class="k">Patente</span> ${esc(r.smoc_patente)}</span>`);
       const ghost = hasSeg?"":`<span class="seg-ghost">＋ Seguimiento</span>`;
       const sit = situacionOf(r, s);
       const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}${hasSeg?"":" solo"}">
@@ -1187,7 +1199,7 @@ function renderFleet(){
         <td class="vercell">${r.app_version_name?'<span class="mono" style="font-size:12px;color:var(--faint)">'+esc(r.app_version_name)+'</span>':'<span class="faint">—</span>'}</td>
         <td class="wificell">${r.wifi_ssid?'<span class="mono" style="font-size:12px;color:var(--dim)">'+esc(r.wifi_ssid)+'</span>':'<span class="faint">—</span>'}</td>
       </tr>`;
-      const rowB = hasSeg
+      const rowB = chips.length>0
         ? `<tr data-serial="${serial}" class="rowB ${rowCls}"><td colspan="8" class="trackcell"><div class="trackchips">${chips.join("")}</div></td></tr>`
         : "";
       return rowA+rowB;
@@ -1509,6 +1521,13 @@ function renderDetail(){
     ${kv("Último latido (servidor)", {t:fmtDateTime(toDate(r.received_at)),n:isNil(r.received_at)}, "", FIELD_TIP.last_heartbeat_srv)}
     ${kv("Reloj de la tablet", {t:fmtEpoch(r.reported_at),n:isNil(r.reported_at)}, "", FIELD_TIP.device_clock)}
   </div>`;
+  const smocDesde = isNil(r.smoc_login_at)?{t:"—",n:true}:{t:fmtEpoch(r.smoc_login_at),n:false};
+  const gVeh=`${gh("veh","Vehículo (SMOC)")}
+    ${kv("Cuadrilla", {t:isNil(r.smoc_cuadrilla)?"—":String(r.smoc_cuadrilla), n:isNil(r.smoc_cuadrilla)}, "", FIELD_TIP.smoc_cuadrilla)}
+    ${kv("Patente", {t:isNil(r.smoc_patente)?"—":String(r.smoc_patente), n:isNil(r.smoc_patente)}, "", FIELD_TIP.smoc_patente)}
+    ${kv("Desde", smocDesde, "", FIELD_TIP.smoc_login_at)}
+    ${kv("Servicio local", boolTxt(r.smoc_endpoint_ok), r.smoc_endpoint_ok===false?"warn":"", FIELD_TIP.smoc_endpoint_ok)}
+  </div>`;
 
   const rangeSeg=`<div class="phctl">
     <span class="zoomlbl" id="zoomLbl"></span>
@@ -1542,7 +1561,7 @@ function renderDetail(){
       <span class="detail-sub">· última señal ${relSig}</span>
     </div>
     ${diagHtml}
-    <div class="groups">${gApp}${gBatt}${gNet}${gGps}${gSys}</div>
+    <div class="groups">${gApp}${gVeh}${gBatt}${gNet}${gGps}${gSys}</div>
     <div id="segCard"></div>
     ${gMap}
 
@@ -2427,6 +2446,7 @@ function demoFleet(){
     const bucket= rnd()<0.12? (rnd()<0.5?"rare":"restricted") : (rnd()<0.5?"active":"working_set");
     const optExempt= rnd()<0.15? false : true;
     const nl = rnd()<0.06; // algunos NULL
+    const hasVeh=rnd()<0.5;
     list.push({
       device_serial:serial,
       app_version_name:versions[i%versions.length], app_version_code:340+ (i%5),
@@ -2445,6 +2465,10 @@ function demoFleet(){
       last_fix_lat_approx: locEnabled&&rnd()<0.85? Math.round((-38-rnd()*15)*100)/100 : null,
       last_fix_lon_approx: locEnabled&&rnd()<0.85? Math.round((-58-rnd()*12)*100)/100 : null,
       sim_present: rnd()<0.9, sim_carrier: "Movistar", sim_slot: rnd()<0.6,
+      smoc_cuadrilla: hasVeh ? "CUAD-"+String(Math.floor(rnd()*90)+10) : null,
+      smoc_patente: hasVeh ? ["AB123CD","AC456EF","AD789GH"][Math.floor(rnd()*3)] : null,
+      smoc_login_at: now - Math.round(rnd()*10)*3600e3,
+      smoc_endpoint_ok: rnd()<0.95,
       storage_free_mb: storageFree, storage_total_mb: 64000, ram_free_mb: Math.round(400+rnd()*2600),
       ram_low: rnd()<0.06, boot_time: now - Math.round(rnd()*10)*864e5,
       android_version: rnd()<0.5?"13":"12", security_patch:"2026-05-01",
