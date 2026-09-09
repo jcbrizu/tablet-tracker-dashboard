@@ -308,6 +308,7 @@
   .seg-actions .btn-primary{width:auto;padding:0 18px;height:34px}
   .seg-msg{font-size:12.5px;min-height:16px}
   .seg-caption{font-size:11.5px;color:var(--dim)}
+  .seg-note{font-size:11px;color:var(--dim)}
   .seg-piloto{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
   .seg-piloto input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
   .seg-piloto label{cursor:pointer;user-select:none}
@@ -563,6 +564,12 @@ const timeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,hour:"2-digit",minute
 const dayTimeFmt=new Intl.DateTimeFormat("es-AR",{timeZone:TZ,day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
 
 function isNil(v){ return v===null||v===undefined||v===""; }
+// Cuadrilla efectiva: la de SMOC manda; la manual del seguimiento es respaldo.
+function cuadrillaEfectiva(r, trk){
+  if(r && !isNil(r.smoc_cuadrilla) && String(r.smoc_cuadrilla).trim()!=="") return {value:String(r.smoc_cuadrilla), fromSmoc:true};
+  if(trk && !isNil(trk.cuadrilla) && String(trk.cuadrilla).trim()!=="") return {value:String(trk.cuadrilla), fromSmoc:false};
+  return null;
+}
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 // Extrae la Unidad de Gestión (UG) del nombre del device. La lógica vive en
@@ -720,7 +727,7 @@ const FIELD_TIP = {
   sim_present:"Si el equipo tiene una SIM lista. Lo lee del equipo, no se carga a mano.",
   sim_carrier:"Operadora de la SIM del equipo (leída del equipo).",
   sim_slot:"Si el equipo tiene ranura para SIM / hardware celular (leído del equipo, sin permiso). 'No' = es WiFi-only y no puede usar datos móviles.",
-  smoc_cuadrilla:"Cuadrilla que hizo login en SMOC en esta tablet. Lo manda SMOC a Tracker dentro del mismo equipo; no se carga a mano y no reemplaza la cuadrilla del seguimiento.",
+  smoc_cuadrilla:"Cuadrilla que hizo login en SMOC en esta tablet. Lo manda SMOC a Tracker dentro del mismo equipo; no se carga a mano. Cuando existe, es la que se muestra en la fila, la búsqueda y el mapa; la del seguimiento queda como respaldo.",
   smoc_patente:"Patente del vehículo declarada por la cuadrilla en el login de SMOC. Rige hasta el próximo login en esta tablet.",
   smoc_login_at:"Fecha y hora del login en SMOC desde el que rige la relación cuadrilla-patente.",
   smoc_endpoint_ok:"Si el servicio local con el que SMOC le escribe a Tracker pudo arrancar en la tablet. 'No' suele ser otro programa usando el mismo puerto.",
@@ -1036,6 +1043,7 @@ function renderFleet(){
   if(q) list=list.filter(x=>{
     if(String(x.r.device_serial||"").toLowerCase().includes(q)) return true;
     if(String(state.deviceNames.get(x.r.device_serial)||"").toLowerCase().includes(q)) return true;
+    if(!isNil(x.r.smoc_cuadrilla) && String(x.r.smoc_cuadrilla).toLowerCase().includes(q)) return true;
     const trk=state.trackingMap.get(x.r.device_serial);
     if(trk){
       for(const key of ["usuario_smoc","cuadrilla","numero","yacimiento","proveedor","celular"]){
@@ -1177,12 +1185,18 @@ function renderFleet(){
       // Chips de seguimiento: etiqueta gris + valor. Sin ficha → fila de una línea
       // con acción fantasma "＋ Seguimiento" (elimina el "Sin datos…" repetido).
       const chips=[];
+      let hasSeg=false; // ficha manual (trk): gobierna el ghost "＋ Seguimiento" y la clase "solo"
+      // Cuadrilla efectiva primero: la de SMOC (magenta) manda sobre la manual (gris).
+      const cq=cuadrillaEfectiva(r,trk);
+      if(cq){
+        if(cq.fromSmoc) chips.push(`<span class="tchip tchip-smoc" title="${esc(FIELD_TIP.smoc_cuadrilla)}"><span class="k">Cuadrilla</span> ${esc(cq.value)}</span>`);
+        else { chips.push(`<span class="tchip"><span class="k">Cuadrilla</span> ${esc(cq.value)}</span>`); hasSeg=true; }
+      }
       if(trk){
-        const add=(k,key)=>{ if(!isNil(trk[key])) chips.push(`<span class="tchip"><span class="k">${k}</span> ${esc(trk[key])}</span>`); };
-        add("Cuadrilla","cuadrilla"); add("Yacimiento","yacimiento"); add("Proveedor","proveedor");
+        const add=(k,key)=>{ if(!isNil(trk[key])){ chips.push(`<span class="tchip"><span class="k">${k}</span> ${esc(trk[key])}</span>`); hasSeg=true; } };
+        add("Yacimiento","yacimiento"); add("Proveedor","proveedor");
         add("Nº","numero"); add("Cel","celular"); add("SMOC","usuario_smoc");
       }
-      const hasSeg=chips.length>0; // ficha manual (trk): gobierna el ghost "＋ Seguimiento" y la clase "solo"
       if(!isNil(r.smoc_patente)) chips.push(`<span class="tchip tchip-smoc" title="${esc(FIELD_TIP.smoc_patente)}"><span class="k">Patente</span> ${esc(r.smoc_patente)}</span>`);
       const ghost = hasSeg?"":`<span class="seg-ghost">＋ Seguimiento</span>`;
       const sit = situacionOf(r, s);
@@ -1312,12 +1326,18 @@ function initFleetMap(points){
   const placed=[];
   // Orden contextual para el tooltip (yacimiento primero); labels de SEG_FIELDS.
   const TIP_SEG_ORDER=["yacimiento","usuario_smoc","cuadrilla","proveedor","numero","celular"];
-  function trackingTipRows(serial){
-    const t=state.trackingMap.get(serial);
-    if(!t) return "";
-    const rows=TIP_SEG_ORDER
-      .filter(k=>!isNil(t[k]) && String(t[k]).trim()!=="")
-      .map(k=>`<div class="mtip-row"><span>${esc(SEG_FIELD_LABELS.get(k))}</span><b>${esc(t[k])}</b></div>`);
+  function trackingTipRows(r){
+    const t=state.trackingMap.get(r.device_serial);
+    const cq=cuadrillaEfectiva(r,t);
+    if(!t && !cq) return "";
+    const rows=[];
+    for(const k of TIP_SEG_ORDER){
+      if(k==="cuadrilla"){
+        if(cq) rows.push(`<div class="mtip-row"><span>${esc(SEG_FIELD_LABELS.get(k))}</span><b>${esc(cq.value)}${cq.fromSmoc?" · SMOC":""}</b></div>`);
+        continue;
+      }
+      if(t && !isNil(t[k]) && String(t[k]).trim()!=="") rows.push(`<div class="mtip-row"><span>${esc(SEG_FIELD_LABELS.get(k))}</span><b>${esc(t[k])}</b></div>`);
+    }
     if(!rows.length) return "";
     return `<div class="mtip-sep"></div>${rows.join("")}`;
   }
@@ -1347,7 +1367,7 @@ function initFleetMap(points){
       `<div class="mtip">
          <div class="mtip-name">${nameHtml}</div>
          <div class="mtip-status">${esc(m.word)}: ${esc(s.main)}</div>
-         ${trackingTipRows(r.device_serial)}
+         ${trackingTipRows(r)}
          <div class="mtip-sep"></div>
          <div class="mtip-row"><span>Red WiFi</span><b>${ssidTxt}</b></div>
          <div class="mtip-row"><span>Señal</span><b>${esc(sigTxt)}</b></div>
@@ -1631,9 +1651,15 @@ function seguimientoHistoryHtml(){
 
 function seguimientoCardHtml(){
   const t=state.tracking;
+  // Si SMOC ya informó cuadrilla, avisar que la manual queda de respaldo (sigue editable).
+  const r=state.fleet.find(x=>x.device_serial===state.device);
+  const smocNote=(r && !isNil(r.smoc_cuadrilla))
+    ? `<div class="seg-note">Reemplazada en la vista por la de SMOC (${esc(r.smoc_cuadrilla)})${isNil(r.smoc_login_at)?"":` desde ${esc(fmtEpoch(r.smoc_login_at))}`}</div>`
+    : "";
   const fieldsHtml=SEG_FIELDS.map(f=>`<div class="seg-field">
     <label for="seg_${f.key}">${esc(f.label)}</label>
     <input id="seg_${f.key}" data-field="${f.key}" type="text" autocomplete="off" value="${esc(seguimientoFieldValue(f.key))}" />
+    ${f.key==="cuadrilla"?smocNote:""}
   </div>`).join("");
   const caption = (t && t.updated_by) ? `<div class="seg-caption">Última edición: ${esc(t.updated_by)} · ${esc(fmtDateTime(toDate(t.updated_at)))}</div>` : "";
   const pilotoDisabled=(state.demo || !sb);
