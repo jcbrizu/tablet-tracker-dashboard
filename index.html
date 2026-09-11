@@ -85,6 +85,7 @@
     font-size:12.5px;font-weight:500;
   }
   .iconbtn:hover{border-color:var(--border-strong);background:var(--panel3);color:var(--text)}
+  .iconbtn.danger{border-color:color-mix(in oklab,var(--crit) 50%,transparent);color:var(--crit-text)}
   .refresh-note{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:7px}
   .pulse{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok)}
   .pulse.on{animation:pulse 1.1s ease-out}
@@ -375,6 +376,22 @@
   .banner{margin:12px 16px 0;padding:9px 13px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:9px}
   .banner.err{background:var(--crit-bg);color:var(--crit-text);border:1px solid color-mix(in oklab,var(--crit) 40%,transparent)}
   .banner.info{background:var(--accent-weak);color:var(--accent-text);border:1px solid color-mix(in oklab,var(--accent) 30%,transparent)}
+  .banner.retired{background:var(--panel3);color:var(--dim);border:1px solid var(--border)}
+  .banner.retired-back{background:var(--warn-bg);color:var(--warn-text);border:1px solid color-mix(in oklab,var(--warn) 40%,transparent)}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;vertical-align:middle;margin-right:4px}
+  .tag-retired{background:var(--panel3);color:var(--dim);border:1px solid var(--border)}
+  .tag-back{background:var(--warn-bg);color:var(--warn-text);border:1px solid color-mix(in oklab,var(--warn) 40%,transparent)}
+
+  /* ---------- Conciliar con Intune ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;z-index:9999;overflow:auto}
+  .overlay-card{background:var(--panel);color:inherit;border-radius:10px;max-width:960px;width:100%;padding:20px 24px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  .overlay-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .rec-list{max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:6px;margin:6px 0 14px}
+  .rec-list table{width:100%;border-collapse:collapse;font-size:13px}
+  .rec-list td,.rec-list th{padding:4px 8px;border-bottom:1px solid var(--border);text-align:left}
+  .rec-warn{background:var(--warn-bg);color:var(--warn-text);padding:8px 12px;border-radius:6px;margin:8px 0}
+  .rec-err{background:var(--crit-bg);color:var(--crit-text);padding:8px 12px;border-radius:6px;margin:8px 0}
 
   /* ---------- Login ---------- */
   .login{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -495,11 +512,22 @@
   </div>
 </div>
 
+<div id="reconcileOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="reconcileTitle">
+  <div class="overlay-card">
+    <div class="overlay-head">
+      <h2 id="reconcileTitle">Conciliar con Intune</h2>
+      <button class="iconbtn" id="reconcileClose" type="button" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="reconcileBody"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.3/dist/umd/supabase.js" integrity="sha384-sihuiVHG7vyEIuePVbLI4QpHu1dbhCZe4Zqp0FuqnFeEnyIhF3koyXoBZyfbFsYs" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js" integrity="sha384-JP5UPxIO2Tm2o79Fb0tGYMa44jkWar53aBoCbd8ah0+LcCDoohTIYr+zIXyfGIJN" crossorigin="anonymous"></script>
 <script src="geofence.js"></script>
 <script src="ug.js"></script>
+<script src="intune-reconcile.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -531,6 +559,8 @@ const state = {
   groupFilter:null,    // null | {type:'network'|'site', value, catch} — drill-down de vistas agrupadas
   ugFilter:"all",      // all | <UG> | none
   pilotoOnly:false,    // true = mostrar sólo equipos marcados como piloto (device_tracking.es_piloto)
+  bajasOnly:false,      // true = mostrar SOLO equipos dados de baja (devices.retired_at)
+  retired:new Map(),    // device_serial -> {retired_at, retired_reason}; solo los de baja
   sort:{key:"status", dir:"asc"},
   device:null,
   range:"24h",         // 24h | 7d | 30d
@@ -855,6 +885,163 @@ function exportFleetCsv(list){
 }
 
 /* ============================================================
+   Conciliación con Intune
+   El archivo se lee en el navegador y se descarta; solo se escriben
+   retired_at / retired_reason en devices. Spec:
+   docs/superpowers/specs/2026-09-11-intune-reconcile-design.md
+   ============================================================ */
+let recState=null; // {fileName, exportDate, result} mientras el overlay está abierto
+
+function fleetForReconcile(){
+  return state.fleet.map(r=>({ serial:r.device_serial, lastSeen:r.received_at?Date.parse(r.received_at):null,
+                               name:state.deviceNames.get(r.device_serial)||"" }));
+}
+
+function openReconcile(){
+  if(state.demo || !sb) return;
+  recState=null;
+  document.getElementById("reconcileOverlay").classList.remove("hidden");
+  document.getElementById("reconcileClose").onclick=closeReconcile;
+  renderReconcile();
+}
+function closeReconcile(){ recState=null; document.getElementById("reconcileOverlay").classList.add("hidden"); }
+
+function recTable(rows, cols){
+  if(!rows.length) return `<div style="color:var(--dim);padding:8px 12px">Ninguno.</div>`;
+  return `<div class="rec-list"><table><thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(x=>`<tr>${cols.map(c=>`<td>${esc(c.get(x))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+const fmtDay=ms=>ms?arDateStamp(new Date(ms)):"—";
+
+// Trocea un array en bloques de n (Supabase .in() con listas grandes de seriales).
+function chunk(arr, n){
+  const out=[];
+  for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n));
+  return out;
+}
+
+function renderReconcile(){
+  const body=document.getElementById("reconcileBody");
+  if(!recState){
+    body.innerHTML=`
+      <p>Exportá desde Intune la lista de dispositivos (Dispositivos → Todos los dispositivos → Exportar) y elegí el archivo.
+         Se lee acá, en tu navegador; no se sube a ningún lado.</p>
+      <input type="file" id="reconcileFile" accept=".csv,text/csv">
+      <div id="reconcileMsg" style="color:var(--dim);margin-top:8px"></div>`;
+    document.getElementById("reconcileFile").onchange=onReconcileFile;
+    return;
+  }
+  const {result:res, fileName, exportDate}=recState;
+  const colsFleet=[{label:"Nombre",get:x=>x.name},{label:"Serial",get:x=>x.serial},{label:"Último latido",get:x=>fmtDay(x.lastSeen)}];
+  const colsReact=colsFleet.concat([{label:"Motivo de la baja",get:x=>x.retired_reason||""}]);
+  const colsNoApp=[{label:"Nombre en Intune",get:x=>x.name},{label:"Serial",get:x=>x.serial},{label:"Android",get:x=>x.osVersion},{label:"Último check-in Intune",get:x=>x.lastCheckIn||"—"}];
+  const canApply=!res.guards.tooFew;
+  body.innerHTML=`
+    <p><b>${esc(fileName)}</b> · ${res.activeCount} equipos activos en el tablero.</p>
+    ${res.guards.tooFew?`<div class="rec-err">El archivo trae muy pocos equipos Android. Parece un export filtrado; no se aplica.</div>`:""}
+    ${res.guards.tooMany?`<div class="rec-warn">Van a quedar de baja más del ${Math.round(IntuneReconcile.MAX_RETIRE_RATIO*100)} % de los equipos activos. Revisá la lista antes de confirmar.
+        <label style="display:block;margin-top:6px"><input type="checkbox" id="recAck"> Entiendo, aplicar igual</label></div>`:""}
+    <h3>1 · Pasan a baja (${res.toRetire.length}) — están en el tablero y no en Intune</h3>
+    ${recTable(res.toRetire, colsFleet)}
+    <h3>2 · Se reactivan (${res.toReactivate.length}) — estaban de baja y volvieron a Intune</h3>
+    ${recTable(res.toReactivate, colsReact)}
+    <h3>3 · En Intune sin app (${res.noApp.length}) — tablets TAB que nunca reportaron</h3>
+    ${recTable(res.noApp, colsNoApp)}
+    <div class="seg-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="iconbtn" id="recExportNoApp" type="button" ${res.noApp.length?"":"disabled"}>⬇ Exportar lista 3</button>
+      <button class="iconbtn" id="recBack" type="button">Elegir otro archivo</button>
+      <button class="iconbtn" id="recApply" type="button" ${canApply?"":"disabled"}>Confirmar ${res.toRetire.length} bajas y ${res.toReactivate.length} reactivaciones</button>
+    </div>
+    <div id="reconcileMsg" style="color:var(--dim);margin-top:8px"></div>`;
+  document.getElementById("recBack").onclick=()=>{ recState=null; renderReconcile(); };
+  document.getElementById("recExportNoApp").onclick=()=>exportNoAppCsv(res.noApp);
+  const ack=document.getElementById("recAck"), apply=document.getElementById("recApply");
+  if(ack){ apply.disabled=true; ack.onchange=()=>{ apply.disabled = res.guards.tooFew || !ack.checked; }; }
+  apply.onclick=()=>applyReconcile(res, exportDate);
+}
+
+function onReconcileFile(ev){
+  const file=ev.target.files && ev.target.files[0];
+  const msg=document.getElementById("reconcileMsg");
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onerror=()=>{ msg.textContent="No se pudo leer el archivo."; };
+  reader.onload=()=>{
+    try{
+      const intune=IntuneReconcile.parseIntuneExport(String(reader.result));
+      const result=IntuneReconcile.reconcile(fleetForReconcile(), state.retired, intune);
+      recState={ fileName:file.name, exportDate:arDateStamp(new Date(file.lastModified||Date.now())), result };
+      renderReconcile();
+    }catch(e){ msg.textContent=e && e.message ? e.message : "No se pudo interpretar el archivo."; }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+async function applyReconcile(res, exportDate){
+  const apply=document.getElementById("recApply"), back=document.getElementById("recBack"),
+        exportBtn=document.getElementById("recExportNoApp"), msg=document.getElementById("reconcileMsg");
+  if(res.guards.tooFew){ msg.textContent="El archivo fue rechazado; no se aplica."; return; }
+  apply.disabled=true; back.disabled=true; exportBtn.disabled=true; msg.textContent="Guardando…";
+  let retiredDone=false, retiredN=0, reactN=0;
+  try{
+    // devices puede no tener fila para algunos seriales de fleet_status (el
+    // trigger de nombre salta placeholders/vacíos) — .in().update() no tira
+    // error si matchea 0 filas, así que contamos lo que realmente vuelve.
+    if(res.toRetire.length){
+      for(const part of chunk(res.toRetire.map(x=>x.serial), 100)){
+        const {data,error}=await sb.from("devices")
+          .update({ retired_at:new Date().toISOString(), retired_reason:`No enrolado en Intune desde ${exportDate}` })
+          .in("device_serial", part)
+          .select("device_serial");
+        if(error) throw error;
+        retiredDone=true;
+        retiredN += data ? data.length : 0;
+      }
+    }
+    if(res.toReactivate.length){
+      for(const part of chunk(res.toReactivate.map(x=>x.serial), 100)){
+        const {data,error}=await sb.from("devices")
+          .update({ retired_at:null, retired_reason:null })
+          .in("device_serial", part)
+          .select("device_serial");
+        if(error) throw error;
+        reactN += data ? data.length : 0;
+      }
+    }
+    await loadRetired();
+    render();
+    const faltantes = (retiredN<res.toRetire.length || reactN<res.toReactivate.length)
+      ? " Los equipos restantes no tienen ficha en la base y no se pudieron marcar." : "";
+    const texto = `Listo: ${retiredN} de ${res.toRetire.length} bajas y ${reactN} de ${res.toReactivate.length} reactivaciones guardadas.${faltantes}`;
+    msg.textContent=texto;
+    showBanner(texto, "info");
+    back.disabled=false;
+    back.textContent="Cerrar";
+    back.onclick=closeReconcile;
+  }catch(e){
+    const detalle=e&&e.message?e.message:"";
+    msg.textContent = retiredDone
+      ? `Se guardaron ${retiredN} bajas pero fallaron las reactivaciones. ${detalle}`
+      : "No se pudo guardar. "+detalle;
+    if(retiredDone){ try{ await loadRetired(); render(); }catch(e2){} }
+    apply.disabled=false;
+    back.disabled=false;
+    if(res.noApp.length) exportBtn.disabled=false;
+  }
+}
+
+function exportNoAppCsv(list){
+  const headers=["Nombre en Intune","Serial","Android","Último check-in Intune"];
+  const lines=[headers, ...list.map(t=>[t.name,t.serial,t.osVersion,t.lastCheckIn])]
+    .map(cols=>cols.map(csvCell).join(";")).join("\r\n");
+  const blob=new Blob(["﻿"+lines],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=`tablets-en-intune-sin-app-${arDateStamp(new Date())}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+/* ============================================================
    Iconos mínimos (rects/polígono simple)
    ============================================================ */
 function batteryIcon(pct,charging){
@@ -1009,10 +1196,15 @@ function renderFleet(){
 
   const rows = state.fleet.map(r=>({r, s:evalStatus(r)}));
 
+  // Bajas: fuera del total y de todas las vistas, salvo que se pida verlas.
+  // Un equipo de baja que volvió a latir se queda en la vista normal (con marca).
+  const isOut=x=>{ const ri=retiredInfo(x.r); return !!ri && !ri.cameBack; };
+  const rowsScoped = state.bajasOnly ? rows.filter(x=>!!retiredInfo(x.r)) : rows.filter(x=>!isOut(x));
+
   // UG presentes en la flota actual (para el selector) + validación de selección vigente
   const ugCounts=new Map();
   let ugNoneCount=0;
-  rows.forEach(x=>{
+  rowsScoped.forEach(x=>{
     const ug=ugOf(state.deviceNames.get(x.r.device_serial));
     if(ug) ugCounts.set(ug,(ugCounts.get(ug)||0)+1);
     else ugNoneCount++;
@@ -1024,7 +1216,7 @@ function renderFleet(){
   }
 
   // Alcance según UG: las tarjetas de resumen y la tabla cuentan lo mismo
-  let scoped=rows.slice();
+  let scoped=rowsScoped.slice();
   if(state.ugFilter!=="all"){
     if(state.ugFilter==="none") scoped=scoped.filter(x=>!ugOf(state.deviceNames.get(x.r.device_serial)));
     else scoped=scoped.filter(x=>ugOf(state.deviceNames.get(x.r.device_serial))===state.ugFilter);
@@ -1114,6 +1306,9 @@ function renderFleet(){
       <div class="segmented" id="pilotoSeg">
         <button class="${state.pilotoOnly?"on":""}" type="button">Piloto</button>
       </div>
+      <div class="segmented" id="bajasSeg" title="Ver solo los equipos dados de baja">
+        <button class="${state.bajasOnly?"on":""}" type="button">Bajas${state.retired.size?` (${state.retired.size})`:""}</button>
+      </div>
       <div class="ugfilter">
         <label for="ugFilterSelect">UG</label>
         <select id="ugFilterSelect">
@@ -1130,6 +1325,7 @@ function renderFleet(){
       </div>
       ${groupChip}
       <button class="iconbtn" id="exportCsvBtn" type="button" title="Descargar CSV de la flota filtrada" ${list.length===0?"disabled":""}>⬇ Exportar</button>
+      <button class="iconbtn" id="reconcileBtn" type="button" title="Marcar bajas a partir del export de dispositivos de Intune" ${(state.demo||!sb)?"disabled":""}>⇄ Conciliar con Intune</button>
     </div>`;
 
   let bodyHtml;
@@ -1182,6 +1378,10 @@ function renderFleet(){
       const dname=state.deviceNames.get(r.device_serial);
       const trk=state.trackingMap.get(r.device_serial);
       const serial=esc(r.device_serial);
+      const ri=retiredInfo(r);
+      const retiredTag = !ri ? "" : ri.cameBack
+        ? `<span class="tag tag-back" title="Estaba de baja y volvió a latir">Volvió a reportar</span> `
+        : `<span class="tag tag-retired" title="${esc(ri.retired_reason||"")}">De baja</span> `;
       // Chips de seguimiento: etiqueta gris + valor. Sin ficha → fila de una línea
       // con acción fantasma "＋ Seguimiento" (elimina el "Sin datos…" repetido).
       const chips=[];
@@ -1201,7 +1401,7 @@ function renderFleet(){
       const ghost = hasSeg?"":`<span class="seg-ghost">＋ Seguimiento</span>`;
       const sit = situacionOf(r, s);
       const rowA=`<tr data-serial="${serial}" class="rowA ${rowCls}${hasSeg?"":" solo"}">
-        <td><div class="serialcell"><span class="serial">${esc(r.device_serial||"—")}</span>${dname?`<span class="serial-name">${esc(dname)}</span>`:""}</div></td>
+        <td><div class="serialcell"><span class="serial">${esc(r.device_serial||"—")}</span>${(dname||retiredTag)?`<span class="serial-name">${retiredTag}${dname?esc(dname):""}</span>`:""}</div></td>
         <td><div class="statuscell">
           <span class="tagbadge tb-${m.cls}">${m.word}</span>
           <span class="motivo${s.level==="ok"?" ok":""}">${esc(s.main)}</span>
@@ -1242,6 +1442,7 @@ function renderFleet(){
   content().querySelectorAll(".card.clickable").forEach(c=>c.onclick=()=>{ const k=c.dataset.filter; state.filter=(state.filter===k?"all":k); render(); });
   content().querySelectorAll("#filterSeg button").forEach(b=>b.onclick=()=>{ const k=b.dataset.filter; state.filter=(k==="all"?"all":(state.filter===k?"all":k)); render(); });
   content().querySelectorAll("#pilotoSeg button").forEach(b=>b.onclick=()=>{ state.pilotoOnly=!state.pilotoOnly; render(); });
+  content().querySelectorAll("#bajasSeg button").forEach(b=>b.onclick=()=>{ state.bajasOnly=!state.bajasOnly; render(); });
   content().querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{ fleetMapView=null; state.fleetView=b.dataset.view; render(); });
   content().querySelectorAll(".grouptbl tbody tr[data-gval]").forEach(tr=>tr.onclick=()=>{
     state.groupFilter={type:tr.dataset.gtype, value:tr.dataset.gval, catch:tr.dataset.gcatch==="1"};
@@ -1254,6 +1455,8 @@ function renderFleet(){
   // renderiza la tabla/mapa de este render puntual: closure captura la versión
   // vigente, no una copia vieja — cada render vuelve a wirear este handler.
   if(exportBtn){ exportBtn.onclick=()=>exportFleetCsv(list); }
+  const recBtn=content().querySelector("#reconcileBtn");
+  if(recBtn) recBtn.onclick=openReconcile;
   const ugSel=document.getElementById("ugFilterSelect");
   if(ugSel){ ugSel.onchange=()=>{ state.ugFilter=ugSel.value; render(); }; }
   const si=document.getElementById("searchInput");
@@ -1573,6 +1776,12 @@ function renderDetail(){
     </div>`;
   }
 
+  const ri=retiredInfo(r);
+  const retiredBanner = !ri ? "" :
+    `<div class="banner ${ri.cameBack?"retired-back":"retired"}">
+       ${ri.cameBack?"<b>Volvió a reportar.</b> Estaba de baja":"<b>De baja</b>"} desde ${esc(fmtDateTime(toDate(ri.retired_at)))}${ri.retired_reason?` · ${esc(ri.retired_reason)}`:""}.
+     </div>`;
+
   content().innerHTML=`<div class="wrap">
     <div class="detail-head">
       <a class="back" id="backBtn">← Volver</a>
@@ -1581,6 +1790,7 @@ function renderDetail(){
       ${dname?`<span class="detail-name">${esc(dname)}</span>`:""}
       <span class="detail-sub">· última señal ${relSig}</span>
     </div>
+    ${retiredBanner}
     ${diagHtml}
     <div class="groups">${gApp}${gVeh}${gBatt}${gNet}${gGps}${gSys}</div>
     <div id="segCard"></div>
@@ -1675,6 +1885,9 @@ function seguimientoCardHtml(){
       <div class="seg-actions">
         <button class="btn-primary" id="segSaveBtn" type="button">Guardar</button>
         <span id="segMsg" class="seg-msg dim"></span>
+        ${(state.demo||!sb)?"":(state.retired.has(state.device)
+          ? `<button class="iconbtn" id="segReactivateBtn" type="button" title="Vuelve a contar en el total y en las vistas">Reactivar</button>`
+          : `<button class="iconbtn danger" id="segRetireBtn" type="button" title="Sale del total y de las vistas; la historia se conserva">Dar de baja</button>`)}
       </div>
       ${caption}
       <details class="raw">
@@ -1708,6 +1921,19 @@ function renderSeguimiento(){
   if(saveBtn) saveBtn.onclick=saveSeguimiento;
   const pilotoToggle=document.getElementById("segPilotoToggle");
   if(pilotoToggle) pilotoToggle.onchange=()=>savePiloto(state.device, pilotoToggle.checked);
+  const retireBtn=document.getElementById("segRetireBtn");
+  if(retireBtn) retireBtn.onclick=async()=>{
+    const reason=window.prompt("Motivo de la baja (obligatorio, máx. 120 caracteres):","");
+    if(reason===null) return;
+    if(!reason.trim()){ showBanner("La baja necesita un motivo.", "err"); return; }
+    retireBtn.disabled=true;
+    if(!(await setRetired(state.device, reason))) retireBtn.disabled=false;
+  };
+  const reactBtn=document.getElementById("segReactivateBtn");
+  if(reactBtn) reactBtn.onclick=async()=>{
+    reactBtn.disabled=true;
+    if(!(await setRetired(state.device, null))) reactBtn.disabled=false;
+  };
 
   if(focusField){
     const el=card.querySelector(`input[data-field="${focusField}"]`);
@@ -1759,6 +1985,20 @@ async function savePiloto(serial, value){
   if(state.device===serial && state.tracking) state.tracking.es_piloto = value;
   const m = state.trackingMap.get(serial); if(m) m.es_piloto = value; else state.trackingMap.set(serial, { device_serial: serial, es_piloto: value });
   if(state.device===serial){ await loadTracking(); } else { render(); }
+}
+
+// Baja lógica manual o reactivación. reason=null reactiva. Patrón de savePiloto:
+// un update, banner en error, refresco quirúrgico + loadRetired.
+async function setRetired(serial, reason){
+  if(state.demo || !sb){ showBanner("La baja no está disponible en modo demo.", "err"); return false; }
+  const row = reason===null
+    ? { retired_at:null, retired_reason:null }
+    : { retired_at:new Date().toISOString(), retired_reason:String(reason).trim().slice(0,120) };
+  const {data,error}=await sb.from("devices").update(row).eq("device_serial", serial).select("device_serial");
+  if(error){ showBanner("No se pudo guardar la baja: "+error.message, "err"); return false; }
+  if(!data || !data.length){ showBanner("Este equipo no tiene ficha en la base; no se pudo marcar.", "err"); return false; }
+  await loadRetired();
+  return true;
 }
 
 async function saveSeguimiento(){
@@ -2075,7 +2315,7 @@ async function loadFleet(silent){
     if(!silent) showBanner("No se pudieron cargar los datos de la flota. "+(e.message||""),"err");
   }
   loadDeviceNames();
-  await Promise.all([loadTrackingMap(), loadGeofences()]);
+  await Promise.all([loadTrackingMap(), loadGeofences(), loadRetired()]);
 }
 
 async function loadDeviceNames(){
@@ -2093,6 +2333,27 @@ async function loadDeviceNames(){
   }catch(e){
     console.warn("No se pudieron cargar los nombres de dispositivo:",e);
   }
+}
+
+// Bajas lógicas (devices.retired_at). Son pocas (decenas), así que se traen
+// todas con un solo select filtrado; no sufre el tope de 1000 filas.
+async function loadRetired(){
+  if(state.demo || !sb){ state.retired=new Map(); return; }
+  const {data,error}=await sb.from("devices")
+    .select("device_serial,retired_at,retired_reason")
+    .not("retired_at","is",null);
+  if(error){ console.warn("loadRetired", error.message); return; }
+  state.retired=new Map((data||[]).map(d=>[d.device_serial,{retired_at:d.retired_at,retired_reason:d.retired_reason}]));
+  render();
+}
+
+// null si el equipo está activo. cameBack = latió DESPUÉS de la baja: se
+// muestra en la vista normal con la marca "Volvió a reportar" y no se reactiva solo.
+function retiredInfo(r){
+  const info=state.retired.get(r.device_serial);
+  if(!info) return null;
+  const last=r.received_at?Date.parse(r.received_at):0;
+  return {...info, cameBack: last>Date.parse(info.retired_at)};
 }
 
 async function loadTrackingMap(){
@@ -2226,6 +2487,7 @@ function enterApp(demo){
 }
 function exitToLogin(){
   stopTimers();
+  closeReconcile();
   appView().classList.add("hidden");
   loginView().classList.remove("hidden");
   state.demo=false; state.fleet=[]; state.device=null; state.view="login";
