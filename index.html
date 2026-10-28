@@ -678,8 +678,7 @@ function evalStatus(r){
   if(r.location_enabled===false) critical.push("Ubicación apagada");
   if(r.location_permission_ok===false) critical.push("Sin permiso de ubicación");
   if(r.managed_config_ok===false) critical.push("Sin configuración corporativa");
-  // null (sin dato de carga) se trata como "no cargando": preferimos falsa alarma a alerta perdida
-  if(r.battery_pct!=null && r.battery_pct<15 && r.battery_charging!==true) critical.push("Batería "+r.battery_pct+"% (sin cargar)");
+  // batería baja NO es crítica (Juan, 28/10): inflaba el KPI de Atención; lo que importa es la conectividad. Queda en Observación (<30 %).
   if(r.storage_free_mb!=null && r.storage_free_mb<500) critical.push("Almacenamiento casi lleno");
   if(r.last_sync_ok===false) critical.push("No pudo enviar al GIS");
 
@@ -741,8 +740,8 @@ const SYNC_ERR_TIP_GENERIC = "La app registró un error al intentar enviar al GI
 // como tooltip nativo (hover) en la fila correspondiente. Sólo los campos que un
 // operario no-técnico no interpreta a simple vista — los obvios no llevan.
 const FIELD_TIP = {
-  points_pending:"Puntos de ubicación capturados que todavía no llegaron al GIS. Se acumulan cuando no hay envío y se vacían cuando la app logra sincronizar.",
-  points_pending_2:"Puntos en cola para el segundo destino GIS (envío doble). «—» si el equipo no tiene un segundo destino configurado.",
+  points_pending:"Puntos de ubicación capturados que todavía no llegaron al GIS de producción (destino principal). Se acumulan cuando no hay envío y se vacían cuando la app logra sincronizar.",
+  points_pending_2:"Puntos en cola para el GIS de test (segundo destino del envío doble). «—» si el equipo no tiene un segundo destino configurado.",
   points_sent_48h:"Puntos enviados con éxito en las últimas 48 horas. No es un total histórico: es una ventana móvil de 48 h.",
   battery_opt_exempt:"Android puede «dormir» apps para ahorrar batería. Si está exenta, el sistema no la frena y sigue capturando y enviando en segundo plano.",
   power_save:"El modo de ahorro de batería del dispositivo está activo. Puede limitar lo que la app hace en segundo plano.",
@@ -783,7 +782,7 @@ function diagnose(r,s){
     return {culprit:null, explain:"La tablet no envía un latido de salud desde hace "+tm+". Puede estar apagada, sin datos o guardada.",
       chips:[P("Última señal",tm,true),P("Puntos pendientes",pend,false)]};
   if(/Batería/.test(m))
-    return {culprit:"bat", explain:"La batería está en "+r.battery_pct+"% y la tablet no está cargando. Por debajo del 15% entra en Atención.",
+    return {culprit:"bat", explain:"La batería está en "+r.battery_pct+"% y la tablet no está cargando. Por debajo del 30% queda en Observación; no cuenta como Atención.",
       chips:[P("Nivel",r.battery_pct+"%",true),P("Cargando",boolSiNo(r.battery_charging)||"No",true),P("Última señal",tm,false)]};
   if(/permiso/i.test(m))
     return {culprit:"gps", explain:"La app perdió el permiso de ubicación: no puede geolocalizar ni reportar la zona al GIS.",
@@ -1671,7 +1670,7 @@ function renderDetail(){
   };
   // grupos
   const gBatt=`${gh("bat","Batería")}
-    ${kv("Nivel", num(r.battery_pct,"%"), (r.battery_pct!=null&&r.battery_pct<15&&r.battery_charging!==true)?"crit":(r.battery_pct!=null&&r.battery_pct<30&&r.battery_charging!==true)?"warn":"")}
+    ${kv("Nivel", num(r.battery_pct,"%"), (r.battery_pct!=null&&r.battery_pct<30&&r.battery_charging!==true)?"warn":"")}
     ${kv("Cargando", boolTxt(r.battery_charging))}
     ${kv("Enchufe", {t:isNil(r.battery_plugged)?"—":({ac:"AC",usb:"USB",wireless:"Inalámbrico",none:"Desconectada"}[r.battery_plugged]||r.battery_plugged),n:isNil(r.battery_plugged)})}
     ${kv("Temperatura", num(r.battery_temp_c,"°C",1), (r.battery_temp_c!=null&&r.battery_temp_c>45)?"warn":"")}
@@ -1731,8 +1730,8 @@ function renderDetail(){
   const gApp=`${gh("app","App y envío al GIS")}
     ${kv("Versión app", {t:isNil(r.app_version_name)?"—":r.app_version_name+(r.app_version_code?" ("+r.app_version_code+")":""),n:isNil(r.app_version_name)})}
     ${(()=>{const iv=intervalSecsOf(r);const val=iv.eff==null?{t:"—",n:true}:{t:fmtIntervalS(iv.eff),n:false};const edit=(iv.eff!=null&&iv.intune!=null&&iv.intune!==iv.eff)?' <span class="edited" title="Editado a mano (Intune: '+esc(fmtIntervalS(iv.intune))+')">✎</span>':'';return `<div class="kv"><span class="k">Intervalo de reporte</span><span class="v ${val.n?'null':''}">${esc(val.t)}${edit}</span></div>`;})()}
-    ${kv("Puntos pendientes", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"", FIELD_TIP.points_pending)}
-    ${kv("Pendientes (2.º destino)", num(r.points_pending_2), "", FIELD_TIP.points_pending_2)}
+    ${kv("Puntos pendientes (prod)", num(r.points_pending), (r.points_pending!=null&&r.points_pending>20)?"warn":"", FIELD_TIP.points_pending)}
+    ${kv("Pendientes (test)", num(r.points_pending_2), "", FIELD_TIP.points_pending_2)}
     ${kv("Punto más viejo sin enviar", {t:fmtDur(r.oldest_pending_age_s),n:isNil(r.oldest_pending_age_s)})}
     ${kv("Enviados (48 h)", num(r.points_sent_48h), "", FIELD_TIP.points_sent_48h)}
     ${kv("Último envío OK", boolTxt(r.last_sync_ok), r.last_sync_ok===false?"crit":"")}
